@@ -1,0 +1,15 @@
+{
+  "name": "gradient-noise-wasm",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "gradient_noise_wasm_bg.wasm",
+    "gradient_noise_wasm.js",
+    "gradient_noise_wasm.d.ts"
+  ],
+  "main": "gradient_noise_wasm.js",
+  "types": "gradient_noise_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
