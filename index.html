@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gradient Generator</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p>Loading Gradient Generator...</p>
+    </div>
+
+    <div class="app" id="app" style="display: none;">
+        <canvas id="background-canvas" class="background-canvas"></canvas>
+        <div class="canvas-container">
+            <canvas id="canvas" width="2000" height="2000"></canvas>
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <h3>Creative Controls</h3>
+                
+                <div class="control-item">
+                    <label>Seed <span class="value-display" id="seed-value">42</span></label>
+                    <input type="range" class="slider" id="seed" min="0" max="9999" value="42">
+                </div>
+                
+                <div class="control-item">
+                    <button class="button secondary" id="randomize">Randomize</button>
+                </div>
+                
+                <div class="control-item">
+                    <label>Blend Mode</label>
+                    <select class="dropdown" id="blend-mode">
+                        <option value="smooth">Smooth Linear</option>
+                        <option value="radial">Radial Burst</option>
+                        <option value="angular">Spiral Twist</option>
+                        <option value="diamond">Diamond Shape</option>
+                        <option value="vortex">Swirling Vortex</option>
+                    </select>
+                </div>
+                
+                <div class="control-item">
+                    <label>Color Spread <span class="value-display" id="color-spread-value">0.7</span></label>
+                    <input type="range" class="slider" id="color-spread" min="0.2" max="2.0" step="0.1" value="0.7">
+            </div>
+
+                <div class="control-item">
+                    <label>Flow Intensity <span class="value-display" id="flow-intensity-value">0.3</span></label>
+                    <input type="range" class="slider" id="flow-intensity" min="0.0" max="1.0" step="0.05" value="0.3">
+                    </div>
+                
+                <div class="control-item">
+                    <label>Organic Distortion <span class="value-display" id="organic-distortion-value">0.2</span></label>
+                    <input type="range" class="slider" id="organic-distortion" min="0.0" max="1.0" step="0.05" value="0.2">
+            </div>
+
+                <div class="control-item">
+                    <label>Color Variance <span class="value-display" id="color-variance-value">0.1</span></label>
+                    <input type="range" class="slider" id="color-variance" min="0.0" max="0.3" step="0.01" value="0.1">
+                </div>
+                
+                <div class="control-item gradient-angle-control" id="gradient-angle-control">
+                    <label>Gradient Angle <span class="value-display" id="gradient-angle-value">45</span></label>
+                    <input type="range" class="slider" id="gradient-angle" min="0" max="360" step="5" value="45">
+                </div>
+                
+                <div class="control-item">
+                    <label>Center Bias <span class="value-display" id="center-bias-value">0.5</span></label>
+                    <input type="range" class="slider" id="center-bias" min="0.0" max="1.0" step="0.01" value="0.5">
+                </div>
+                
+                <div class="control-item">
+                    <label>Canvas Rotation <span class="value-display" id="canvas-rotation-value">0</span></label>
+                    <input type="range" class="slider" id="canvas-rotation" min="0" max="360" step="1" value="0">
+                </div>
+                
+                <div class="color-preset-grid">
+                    <button class="button color-preset-button secondary" data-color-preset="sunset">Sunset</button>
+                    <button class="button color-preset-button secondary" data-color-preset="ocean">Ocean</button>
+                    <button class="button color-preset-button secondary" data-color-preset="forest">Forest</button>
+                    <button class="button color-preset-button secondary" data-color-preset="cosmic">Cosmic</button>
+                    <button class="button color-preset-button secondary" data-color-preset="fire">Fire</button>
+                    <button class="button color-preset-button secondary" data-color-preset="ice">Ice</button>
+                    <button class="button color-preset-button secondary" data-color-preset="earth">Earth</button>
+                    <button class="button color-preset-button secondary" data-color-preset="neon">Neon</button>
+            </div>
+
+                <div class="control-item">
+                    <button class="button secondary" id="randomize-colors">Random Colors</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Output</h3>
+                
+                <div class="control-item">
+                    <label>Aspect Ratio</label>
+                    <select class="dropdown" id="aspect-ratio">
+                        <option value="1:1">Square (1:1)</option>
+                        <option value="16:9">Widescreen (16:9)</option>
+                        <option value="4:3">Standard (4:3)</option>
+                        <option value="3:2">Photo (3:2)</option>
+                        <option value="21:9">Ultrawide (21:9)</option>
+                        <option value="9:16">Portrait (9:16)</option>
+                        <option value="3:4">Portrait Standard (3:4)</option>
+                        <option value="2:3">Portrait Photo (2:3)</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+                
+                <div class="dimension-controls" id="dimension-controls">
+                <div class="control-item">
+                        <label>Width <span class="value-display" id="width-value">2000</span></label>
+                        <input type="range" class="slider" id="width" min="256" max="4096" step="64" value="2000">
+                </div>
+                    
+                <div class="control-item">
+                        <label>Height <span class="value-display" id="height-value">2000</span></label>
+                        <input type="range" class="slider" id="height" min="256" max="4096" step="64" value="2000">
+                </div>
+                    
+                <div class="control-item">
+                    <button class="button primary" id="apply-dimensions">Apply Dimensions</button>
+                </div>
+            </div>
+
+            <div class="composition-controls">
+                <h4>Composition</h4>
+                
+                <div class="composition-info">
+                    <small id="composition-offset">Offset: 0, 0</small>
+                    <small id="composition-zoom">Zoom: 1.0x</small>
+                </div>
+                
+                <div class="control-item">
+                    <button class="button secondary" id="reset-composition">Reset View</button>
+                </div>
+                
+                <div class="composition-help">
+                    <small>Drag canvas to pan • Scroll to zoom</small>
+                </div>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Randomize & History</h3>
+
+                <div class="control-item">
+                    <button class="button primary" id="randomize-everything">Randomize Everything</button>
+                </div>
+                
+                <div class="control-item">
+                    <button class="button secondary" id="advanced-randomize">Advanced Randomize</button>
+                </div>
+                
+                <div class="history-controls">
+                    <button class="button secondary" id="undo" disabled>Undo</button>
+                    <button class="button secondary" id="redo" disabled>Redo</button>
+            </div>
+
+                <div class="control-item">
+                    <button class="button" id="export">Export PNG</button>
+                </div>
+                
+                
+                <div class="control-item status-indicator">
+                    <small id="resolution-status">Gradient Engine - Ready</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>

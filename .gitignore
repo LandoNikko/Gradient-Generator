@@ -1,0 +1,40 @@
+# Rust
+/target/
+Cargo.lock
+
+# WASM Build artifacts - keeping pkg/ for GitHub Pages deployment
+# Uncomment the line below if you want users to build WASM themselves:
+# /pkg/
+
+# Node.js (if using npm)
+node_modules/
+package-lock.json
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Build tools
+rustup-init.exe
+wasm-pack.tar.gz
+wasm-pack-*/
