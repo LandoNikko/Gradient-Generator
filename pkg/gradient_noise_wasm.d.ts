@@ -7,10 +7,7 @@ export class GradientGenerator {
   constructor();
   update_params(params_json: string): void;
   generate_gradient_data(width: number, height: number): Uint8Array;
-  apply_color_preset(preset_name: string): void;
-  randomize_colors(seed: number): void;
   get_params_json(): string;
-  randomize_with_advanced_rng(seed: number, creativity_level: number): void;
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
@@ -21,10 +18,7 @@ export interface InitOutput {
   readonly gradientgenerator_new: () => number;
   readonly gradientgenerator_update_params: (a: number, b: number, c: number, d: number) => void;
   readonly gradientgenerator_generate_gradient_data: (a: number, b: number, c: number, d: number) => void;
-  readonly gradientgenerator_apply_color_preset: (a: number, b: number, c: number) => void;
-  readonly gradientgenerator_randomize_colors: (a: number, b: number) => void;
   readonly gradientgenerator_get_params_json: (a: number, b: number) => void;
-  readonly gradientgenerator_randomize_with_advanced_rng: (a: number, b: number, c: number) => void;
   readonly main: () => void;
   readonly __wbindgen_export_0: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export_1: (a: number, b: number) => number;

@@ -191,20 +191,6 @@ export class GradientGenerator {
         }
     }
     /**
-     * @param {string} preset_name
-     */
-    apply_color_preset(preset_name) {
-        const ptr0 = passStringToWasm0(preset_name, wasm.__wbindgen_export_1, wasm.__wbindgen_export_2);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.gradientgenerator_apply_color_preset(this.__wbg_ptr, ptr0, len0);
-    }
-    /**
-     * @param {number} seed
-     */
-    randomize_colors(seed) {
-        wasm.gradientgenerator_randomize_colors(this.__wbg_ptr, seed);
-    }
-    /**
      * @returns {string}
      */
     get_params_json() {
@@ -222,13 +208,6 @@ export class GradientGenerator {
             wasm.__wbindgen_add_to_stack_pointer(16);
             wasm.__wbindgen_export_0(deferred1_0, deferred1_1, 1);
         }
-    }
-    /**
-     * @param {number} seed
-     * @param {number} creativity_level
-     */
-    randomize_with_advanced_rng(seed, creativity_level) {
-        wasm.gradientgenerator_randomize_with_advanced_rng(this.__wbg_ptr, seed, creativity_level);
     }
 }
 if (Symbol.dispose) GradientGenerator.prototype[Symbol.dispose] = GradientGenerator.prototype.free;

@@ -2,8 +2,6 @@ use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use rayon::prelude::*;
-use rand::{Rng, SeedableRng};
-use rand_xoshiro::Xoshiro256PlusPlus;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
@@ -22,10 +20,15 @@ pub struct GradientParams {
     pub offset_y: f64,
     pub zoom: f64,
     pub canvas_rotation: f64,
-    pub color_1: [f64; 3],
-    pub color_2: [f64; 3],
-    pub color_3: [f64; 3],
-    pub color_4: [f64; 3],
+    pub color_count: usize,
+    pub color_1: [f64; 4],
+    pub color_2: [f64; 4],
+    pub color_3: [f64; 4],
+    pub color_4: [f64; 4],
+    pub color_5: [f64; 4],
+    pub color_6: [f64; 4],
+    pub color_7: [f64; 4],
+    pub color_8: [f64; 4],
 }
 
 impl Default for GradientParams {
@@ -43,10 +46,31 @@ impl Default for GradientParams {
             offset_y: 0.0,
             zoom: 1.0,
             canvas_rotation: 0.0,
-            color_1: [1.0, 0.4, 0.2],
-            color_2: [0.2, 0.2, 0.3],
-            color_3: [0.6, 0.8, 0.9],
-            color_4: [0.1, 0.1, 0.1],
+            color_count: 4,
+            color_1: [1.0, 0.4, 0.2, 1.0],
+            color_2: [0.2, 0.2, 0.3, 1.0],
+            color_3: [0.6, 0.8, 0.9, 1.0],
+            color_4: [0.1, 0.1, 0.1, 1.0],
+            color_5: [0.0, 0.0, 0.0, 0.0],
+            color_6: [0.0, 0.0, 0.0, 0.0],
+            color_7: [0.0, 0.0, 0.0, 0.0],
+            color_8: [0.0, 0.0, 0.0, 0.0],
+        }
+    }
+}
+
+impl GradientParams {
+    pub fn get_color_at_index(&self, index: usize) -> [f64; 4] {
+        match index {
+            0 => self.color_1,
+            1 => self.color_2,
+            2 => self.color_3,
+            3 => self.color_4,
+            4 => self.color_5,
+            5 => self.color_6,
+            6 => self.color_7,
+            7 => self.color_8,
+            _ => [0.0, 0.0, 0.0, 0.0],
         }
     }
 }
@@ -76,7 +100,7 @@ impl BlendMode {
 pub struct GradientGenerator {
     params: GradientParams,
     blend_mode_cached: BlendMode,
-    color_cache: [[f64; 3]; 4],
+    color_cache: Vec<[f64; 4]>,
     sin_table: Vec<f64>,
     cos_table: Vec<f64>,
     cached_constants: CachedConstants,
@@ -127,12 +151,10 @@ impl GradientGenerator {
         
         let default_params = GradientParams::default();
         let blend_mode_cached = BlendMode::from_string(&default_params.blend_mode);
-        let color_cache = [
-            default_params.color_1,
-            default_params.color_2,
-            default_params.color_3,
-            default_params.color_4,
-        ];
+        let mut color_cache = Vec::with_capacity(default_params.color_count);
+        for i in 0..default_params.color_count {
+            color_cache.push(default_params.get_color_at_index(i));
+        }
         
         Self {
             params: default_params,
@@ -149,7 +171,10 @@ impl GradientGenerator {
         match serde_json::from_str::<GradientParams>(params_json) {
             Ok(params) => {
                 self.blend_mode_cached = BlendMode::from_string(&params.blend_mode);
-                self.color_cache = [params.color_1, params.color_2, params.color_3, params.color_4];
+                self.color_cache.clear();
+                for i in 0..params.color_count {
+                    self.color_cache.push(params.get_color_at_index(i));
+                }
                 self.params = params;
                 Ok(())
             }
@@ -258,7 +283,7 @@ impl GradientGenerator {
                         pixel[0] = (color[0] * 255.0).clamp(0.0, 255.0) as u8;
                         pixel[1] = (color[1] * 255.0).clamp(0.0, 255.0) as u8;
                         pixel[2] = (color[2] * 255.0).clamp(0.0, 255.0) as u8;
-                        pixel[3] = 255;
+                        pixel[3] = (color[3] * 255.0).clamp(0.0, 255.0) as u8;
                     }
                 }
             });
@@ -297,7 +322,6 @@ impl GradientGenerator {
                 let nx3 = ((x + 2) as f64 * inv_width) * 2.0 - 1.0;
                 let nx4 = ((x + 3) as f64 * inv_width) * 2.0 - 1.0;
                 
-                // Apply rotation to normalized coordinates first
                 let rotated_nx1 = nx1 * cos_rotation - ny * sin_rotation;
                 let rotated_ny1 = nx1 * sin_rotation + ny * cos_rotation;
                 let rotated_nx2 = nx2 * cos_rotation - ny * sin_rotation;
@@ -307,7 +331,6 @@ impl GradientGenerator {
                 let rotated_nx4 = nx4 * cos_rotation - ny * sin_rotation;
                 let rotated_ny4 = nx4 * sin_rotation + ny * cos_rotation;
                 
-                // Then apply zoom and offset
                 let tx1 = (rotated_nx1 * zoom_factor) + offset_x_scaled;
                 let ty1 = (rotated_ny1 * zoom_factor) + offset_y_scaled;
                 let tx2 = (rotated_nx2 * zoom_factor) + offset_x_scaled;
@@ -333,7 +356,7 @@ impl GradientGenerator {
                     data[idx] = (color[0] * 255.0).clamp(0.0, 255.0) as u8;
                     data[idx + 1] = (color[1] * 255.0).clamp(0.0, 255.0) as u8;
                     data[idx + 2] = (color[2] * 255.0).clamp(0.0, 255.0) as u8;
-                    data[idx + 3] = 255;
+                    data[idx + 3] = (color[3] * 255.0).clamp(0.0, 255.0) as u8;
                     idx += 4;
                 }
                 
@@ -343,11 +366,9 @@ impl GradientGenerator {
             while x < width {
                 let nx = (x as f64 * inv_width) * 2.0 - 1.0;
                 
-                // Apply rotation to normalized coordinates first
                 let rotated_nx = nx * cos_rotation - ny * sin_rotation;
                 let rotated_ny = nx * sin_rotation + ny * cos_rotation;
                 
-                // Then apply zoom and offset
                 let rotated_x = (rotated_nx * zoom_factor) + offset_x_scaled;
                 let rotated_y = (rotated_ny * zoom_factor) + offset_y_scaled;
                 
@@ -359,7 +380,7 @@ impl GradientGenerator {
                 data[idx] = (color[0] * 255.0).clamp(0.0, 255.0) as u8;
                 data[idx + 1] = (color[1] * 255.0).clamp(0.0, 255.0) as u8;
                 data[idx + 2] = (color[2] * 255.0).clamp(0.0, 255.0) as u8;
-                data[idx + 3] = 255;
+                data[idx + 3] = (color[3] * 255.0).clamp(0.0, 255.0) as u8;
                 idx += 4;
                 x += 1;
             }
@@ -367,12 +388,10 @@ impl GradientGenerator {
     }
 
     #[inline(always)]
-    fn compute_ultra_optimized_gradient(&self, x: f64, y: f64, cos_angle: f64, sin_angle: f64, seed: f64, organic_mult: f64, flow_mult: f64, variance_mult: f64) -> [f64; 3] {
-        // Use pre-calculated multipliers from cached constants
+    fn compute_ultra_optimized_gradient(&self, x: f64, y: f64, cos_angle: f64, sin_angle: f64, seed: f64, organic_mult: f64, flow_mult: f64, variance_mult: f64) -> [f64; 4] {
         let multipliers = &self.cached_constants.organic_multipliers;
         let flow_mults = &self.cached_constants.flow_multipliers;
         
-        // Pre-calculate seed offsets (vectorizable)
         let seed_01 = seed * flow_mults[2]; // 0.1
         let seed_02 = seed * flow_mults[3]; // 0.2
         let seed_03 = seed * 0.3;
@@ -382,7 +401,6 @@ impl GradientGenerator {
         let seed_07 = seed * 0.7;
         let seed_08 = seed * 0.8;
         
-        // Use cached multipliers for better performance
         let x3 = x * multipliers[0];    // 3.0
         let y25 = y * multipliers[1];   // 2.5
         let x18 = x * multipliers[2];   // 1.8
@@ -390,15 +408,12 @@ impl GradientGenerator {
         let x51 = x * multipliers[4];   // 5.1
         let y13 = y * multipliers[5];   // 1.3
         
-        // Optimized distortion calculation with reduced function calls
         let distortion1 = self.ultra_fast_sin(x3 + seed_01) * self.ultra_fast_cos(y25 + seed_02);
         let distortion2 = self.ultra_fast_cos(x18 + seed_03) * self.ultra_fast_sin(y42 + seed_04);
         let distortion3 = self.ultra_fast_sin(x51 + seed_05) * self.ultra_fast_cos(y13 + seed_06);
         
-        // Fused multiply-add for better performance
         let organic_offset = (distortion1 * 0.5 + distortion2 * 0.3 + distortion3 * 0.2) * organic_mult;
         
-        // Use cached flow multipliers
         let x2 = x * flow_mults[0];     // 2.0
         let y2 = y * flow_mults[1];     // 2.0
         let flow_x = self.ultra_fast_sin(x2 + seed_07) * flow_mult;
@@ -445,7 +460,6 @@ impl GradientGenerator {
         };
         
         let adjusted_pos = gradient_pos * self.params.color_spread;
-        // Use cached multipliers for variance calculation
         let variance = self.ultra_fast_sin(final_x * multipliers[6] + final_y * multipliers[7] + seed) * variance_mult;
         let final_pos = adjusted_pos + variance;
         
@@ -453,17 +467,22 @@ impl GradientGenerator {
     }
 
     #[inline(always)]
-    fn interpolate_colors_ultra_optimized(&self, t: f64) -> [f64; 3] {
+    fn interpolate_colors_ultra_optimized(&self, t: f64) -> [f64; 4] {
         let normalized_t = ((t % 2.0) + 2.0) % 2.0;
         let wrapped_t = if normalized_t > 1.0 { 2.0 - normalized_t } else { normalized_t };
         
-        let scaled_t = wrapped_t * 3.0;
+        let color_count = self.color_cache.len();
+        if color_count <= 1 {
+            return self.color_cache[0];
+        }
+        
+        let scaled_t = wrapped_t * (color_count - 1) as f64;
         let segment_index = scaled_t.floor() as usize;
         let local_t = scaled_t - segment_index as f64;
         
         let (color1, color2) = unsafe {
-            let idx1 = segment_index.min(3);
-            let idx2 = (segment_index + 1).min(3);
+            let idx1 = segment_index.min(color_count - 1);
+            let idx2 = (segment_index + 1).min(color_count - 1);
             (
                 *self.color_cache.get_unchecked(idx1),
                 *self.color_cache.get_unchecked(idx2)
@@ -478,130 +497,10 @@ impl GradientGenerator {
             color1[0] * inv_smooth_t + color2[0] * smooth_t,
             color1[1] * inv_smooth_t + color2[1] * smooth_t,
             color1[2] * inv_smooth_t + color2[2] * smooth_t,
+            color1[3] * inv_smooth_t + color2[3] * smooth_t,
         ]
     }
 
-    #[wasm_bindgen]
-    pub fn apply_color_preset(&mut self, preset_name: &str) {
-        let colors = match preset_name {
-            "sunset" => [
-                [1.0, 0.6, 0.2],   // Warm orange
-                [1.0, 0.3, 0.4],   // Pink-red
-                [0.4, 0.2, 0.6],   // Purple
-                [0.1, 0.1, 0.2],   // Dark blue
-            ],
-            "ocean" => [
-                [0.0, 0.3, 0.5],   // Deep blue
-                [0.0, 0.5, 0.7],   // Ocean blue
-                [0.2, 0.7, 0.9],   // Light blue
-                [0.8, 0.9, 1.0],   // Almost white
-            ],
-            "forest" => [
-                [0.2, 0.6, 0.3],   // Forest green
-                [0.6, 0.8, 0.4],   // Light green
-                [0.9, 0.9, 0.8],   // Cream
-                [0.3, 0.3, 0.2],   // Dark brown
-            ],
-            "cosmic" => [
-                [0.8, 0.2, 0.9],   // Bright purple
-                [0.2, 0.8, 0.9],   // Cyan
-                [0.9, 0.7, 0.2],   // Gold
-                [0.1, 0.1, 0.1],   // Black
-            ],
-            "fire" => [
-                [1.0, 0.9, 0.2],   // Bright yellow
-                [1.0, 0.5, 0.0],   // Orange
-                [0.8, 0.1, 0.0],   // Red
-                [0.2, 0.0, 0.0],   // Dark red
-            ],
-            "ice" => [
-                [0.9, 0.95, 1.0],  // Ice white
-                [0.7, 0.85, 0.95], // Light blue
-                [0.4, 0.6, 0.8],   // Medium blue
-                [0.1, 0.2, 0.4],   // Dark blue
-            ],
-            "earth" => [
-                [0.8, 0.7, 0.5],   // Sand
-                [0.6, 0.4, 0.2],   // Brown
-                [0.4, 0.3, 0.1],   // Dark brown
-                [0.2, 0.15, 0.05], // Very dark brown
-            ],
-            "neon" => [
-                [1.0, 0.0, 1.0],   // Magenta
-                [0.0, 1.0, 1.0],   // Cyan
-                [1.0, 1.0, 0.0],   // Yellow
-                [1.0, 0.0, 0.0],   // Red
-            ],
-            _ => return,
-        };
-        
-        self.params.color_1 = colors[0];
-        self.params.color_2 = colors[1];
-        self.params.color_3 = colors[2];
-        self.params.color_4 = colors[3];
-        
-        self.color_cache = colors;
-    }
-
-    #[wasm_bindgen]
-    pub fn randomize_colors(&mut self, seed: u32) {
-        let mut rng_state = seed as f64;
-        
-        let mut next_random = || {
-            rng_state = (rng_state * 9301.0 + 49297.0) % 233280.0;
-            rng_state / 233280.0
-        };
-        
-        for i in 0..4 {
-            let hue = next_random() * 360.0;
-            let saturation = 0.6 + next_random() * 0.4;
-            let lightness = if i % 2 == 0 { 0.3 + next_random() * 0.4 } else { 0.6 + next_random() * 0.4 };
-            
-            let color = self.hsl_to_rgb(hue, saturation, lightness);
-            match i {
-                0 => {
-                    self.params.color_1 = color;
-                    self.color_cache[0] = color;
-                }
-                1 => {
-                    self.params.color_2 = color;
-                    self.color_cache[1] = color;
-                }
-                2 => {
-                    self.params.color_3 = color;
-                    self.color_cache[2] = color;
-                }
-                3 => {
-                    self.params.color_4 = color;
-                    self.color_cache[3] = color;
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn hsl_to_rgb(&self, h: f64, s: f64, l: f64) -> [f64; 3] {
-        let h = h / 360.0;
-        let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-        let x = c * (1.0 - ((h * 6.0) % 2.0 - 1.0).abs());
-        let m = l - c / 2.0;
-        
-        let (r, g, b) = if h < 1.0/6.0 {
-            (c, x, 0.0)
-        } else if h < 2.0/6.0 {
-            (x, c, 0.0)
-        } else if h < 3.0/6.0 {
-            (0.0, c, x)
-        } else if h < 4.0/6.0 {
-            (0.0, x, c)
-        } else if h < 5.0/6.0 {
-            (x, 0.0, c)
-        } else {
-            (c, 0.0, x)
-        };
-        
-        [r + m, g + m, b + m]
-    }
 
 
     #[wasm_bindgen]
@@ -610,41 +509,6 @@ impl GradientGenerator {
     }
     
     
-    #[wasm_bindgen]
-    pub fn randomize_with_advanced_rng(&mut self, seed: u32, creativity_level: f64) {
-        let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed as u64);
-        
-        let creativity = creativity_level.clamp(0.0, 1.0);
-        
-        self.params.flow_intensity = rng.gen::<f64>() * creativity;
-        self.params.organic_distortion = rng.gen::<f64>() * creativity;
-        self.params.color_variance = rng.gen::<f64>() * creativity * 0.3;
-        self.params.color_spread = 0.5 + rng.gen::<f64>() * creativity;
-        
-        for i in 0..4 {
-            let hue = rng.gen::<f64>() * 360.0;
-            let saturation = 0.4 + rng.gen::<f64>() * 0.6 * creativity;
-            let lightness = if i % 2 == 0 { 
-                0.2 + rng.gen::<f64>() * 0.5 
-            } else { 
-                0.5 + rng.gen::<f64>() * 0.5 
-            };
-            
-            let color = self.hsl_to_rgb(hue, saturation, lightness);
-            match i {
-                0 => { self.params.color_1 = color; self.color_cache[0] = color; }
-                1 => { self.params.color_2 = color; self.color_cache[1] = color; }
-                2 => { self.params.color_3 = color; self.color_cache[2] = color; }
-                3 => { self.params.color_4 = color; self.color_cache[3] = color; }
-                _ => {}
-            }
-        }
-        
-        let blend_modes = ["smooth", "radial", "angular", "diamond", "vortex"];
-        let mode_index = (rng.gen::<f64>() * blend_modes.len() as f64) as usize;
-        self.params.blend_mode = blend_modes[mode_index].to_string();
-        self.blend_mode_cached = BlendMode::from_string(&self.params.blend_mode);
-    }
 }
 
 #[wasm_bindgen(start)]

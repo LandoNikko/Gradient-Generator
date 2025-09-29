@@ -16,6 +16,9 @@
   --hover-bg: hsla(0, 0%, 100%, 0.08);
   --hover-border: hsla(0, 0%, 100%, 0.2);
   
+  --danger: hsl(6, 78%, 58%);
+  --danger-bg: hsla(6, 78%, 58%, 0.1);
+  
   --shadow-card: 0 10px 30px hsla(0, 0%, 0%, 0.25);
   --shadow-glow: 0 0 10px hsla(225, 100%, 74%, 0.2);
 }
@@ -130,6 +133,17 @@ body {
     font-weight: 600;
 }
 
+.control-group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.control-group-header h3 {
+    margin: 0;
+}
+
 .control-item {
     margin-bottom: 16px;
 }
@@ -228,16 +242,222 @@ input[type="checkbox"] {
     margin-top: 8px;
 }
 
-.color-preset-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
+
+
+
+.randomize-colors-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--border-normal);
+    border-radius: 6px;
+    background: var(--bg-normal);
+    color: var(--accent);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 1.2em;
+}
+
+.randomize-colors-btn:hover {
+    background: var(--bg-strong);
+    border-color: var(--accent);
+    transform: scale(1.05);
+}
+
+.trash-bin {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 36px;
+    border: 1px dashed var(--border-normal);
+    border-radius: 6px;
+    background: var(--bg-normal);
+    color: var(--muted);
+    transition: all 0.2s ease;
+    font-size: 1.2em;
     margin-top: 8px;
 }
 
-.color-preset-button {
-    padding: 6px 10px;
+.trash-bin:hover {
+    border-color: var(--danger);
+}
+
+.trash-bin.drag-over {
+    border-color: var(--danger);
+    background: var(--danger-bg);
+    color: var(--danger);
+    transform: scale(1.1);
+}
+
+.color-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+}
+
+.color-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    cursor: grab;
+    position: relative;
+}
+
+.color-label-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.color-item:hover {
+    background: var(--bg-subtle);
+}
+
+.color-item.dragging {
+    opacity: 0.5;
+    transform: rotate(2deg);
+    background: var(--bg-strong);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.color-item.drag-over-left::before {
+    content: '';
+    position: absolute;
+    left: -4px;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--accent);
+    border-radius: 2px;
+    z-index: 10;
+}
+
+.color-item.drag-over-right::after {
+    content: '';
+    position: absolute;
+    right: -4px;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--accent);
+    border-radius: 2px;
+    z-index: 10;
+}
+
+.add-color-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 48px;
+    border: 1px dashed var(--border-normal);
+    border-radius: 6px;
+    background: var(--bg-normal);
+    color: var(--accent);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 1.2em;
+}
+
+.add-color-item:hover {
+    background: var(--bg-strong);
+    border-color: var(--accent);
+    transform: scale(1.02);
+}
+
+.add-color-item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.color-item label {
+    font-size: 0.85em;
+    color: var(--muted);
+    white-space: nowrap;
+    min-width: auto;
+    margin-right: 2px;
+    cursor: grab;
+}
+
+.color-picker {
+    width: 40px;
+    height: 32px;
+    border: 1px solid var(--border-normal);
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.color-picker:hover {
+    border-color: var(--hover-border);
+}
+
+.color-picker::-webkit-color-swatch-wrapper {
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+}
+
+.color-picker::-webkit-color-swatch {
+    border: none;
+    border-radius: 4px;
+}
+
+.alpha-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--border-normal);
+    border-radius: 3px;
+    background: var(--bg-normal);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
     font-size: 0.7em;
+    padding: 0;
+}
+
+.alpha-toggle:hover {
+    background: var(--bg-strong);
+    border-color: var(--accent);
+    color: var(--accent);
+    transform: scale(1.1);
+}
+
+.alpha-toggle[data-alpha="0"] {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+.alpha-toggle[data-alpha="0"] i {
+    opacity: 0.5;
+}
+
+.drag-handle {
+    color: var(--muted);
+    font-size: 1.2em;
+    cursor: grab;
+    transition: color 0.2s ease;
+    justify-self: center;
+}
+
+.drag-handle:hover {
+    color: var(--accent);
+}
+
+.drag-handle:active {
+    cursor: grabbing;
 }
 
 .preset-button {
@@ -319,8 +539,15 @@ input[type="checkbox"] {
     }
 }
 
+.dropdown-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .dropdown {
-    width: 100%;
+    flex: 1;
     padding: 8px 12px;
     border: 1px solid var(--border-subtle);
     border-radius: 6px;
@@ -333,6 +560,39 @@ input[type="checkbox"] {
 
 .dropdown:focus {
     border-color: var(--accent);
+}
+
+.dropdown-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dropdown-nav-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 3px;
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.8em;
+    padding: 0;
+}
+
+.dropdown-nav-btn:hover {
+    background: var(--bg-strong);
+    border-color: var(--accent);
+    color: var(--accent);
+    transform: scale(1.1);
+}
+
+.dropdown-nav-btn:active {
+    transform: scale(0.95);
 }
 
 .history-controls {

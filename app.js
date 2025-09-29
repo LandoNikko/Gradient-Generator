@@ -25,6 +25,13 @@ let canvasRotation = 0;
 let isDragging = false;
 let lastMousePos = { x: 0, y: 0 };
 
+let colorCache = null;
+let colorCacheVersion = 0;
+let rgbColorCache = null;
+
+let currentPreset = '';
+let presetColors = [];
+
 async function init() {
     try {
         console.log('Initializing Gradient Generator...');
@@ -35,9 +42,9 @@ async function init() {
         gradientGenerator = new wasmModule.GradientGenerator();
         
         canvas = document.getElementById('canvas');
-        ctx = canvas.getContext('2d');
+        ctx = canvas.getContext('2d', { alpha: true });
         backgroundCanvas = document.getElementById('background-canvas');
-        backgroundCtx = backgroundCanvas.getContext('2d');
+        backgroundCtx = backgroundCanvas.getContext('2d', { alpha: true });
         
         if (!canvas || !ctx || !backgroundCanvas || !backgroundCtx) {
             throw new Error('Canvas not found or context creation failed');
@@ -131,10 +138,10 @@ function setupEventListeners() {
         
         if (slider && valueDisplay) {
             slider.addEventListener('input', (e) => {
-            if (id === 'canvas-rotation') {
-                valueDisplay.textContent = e.target.value;
-                canvasRotation = parseFloat(e.target.value);
-                applyCanvasRotation();
+                if (id === 'canvas-rotation') {
+                    valueDisplay.textContent = e.target.value;
+                    canvasRotation = parseFloat(e.target.value);
+                    applyCanvasRotation();
                 } else {
                     valueDisplay.textContent = e.target.value;
                     if (id === 'width' || id === 'height') {
@@ -167,17 +174,40 @@ function setupEventListeners() {
     
     document.getElementById('export')?.addEventListener('click', exportImage);
     
-    document.querySelectorAll('.color-preset-button').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const colorPreset = e.target.dataset.colorPreset;
-            applyColorPreset(colorPreset);
+    const colorPresetSelect = document.getElementById('color-preset');
+    if (colorPresetSelect) {
+        colorPresetSelect.addEventListener('change', (e) => {
+            if (e.target.value) {
+                applyColorPreset(e.target.value);
+                currentPreset = e.target.value;
+                updatePresetColors();
+            }
         });
-    });
+    }
     
-    document.getElementById('randomize-colors')?.addEventListener('click', () => {
-        const randomSeed = Math.floor(Math.random() * 10000);
-        randomizeColors(randomSeed);
-    });
+    // Color picker and alpha toggle event listeners
+    for (let i = 0; i < 6; i++) {
+        const colorPicker = document.getElementById(`color-${i}`);
+        const alphaToggle = document.getElementById(`alpha-toggle-${i}`);
+        
+        if (colorPicker) {
+            colorPicker.addEventListener('input', () => {
+                invalidateColorCache();
+                checkForCustomChanges();
+                debouncedGenerateGradient();
+            });
+        }
+        
+        if (alphaToggle) {
+            alphaToggle.addEventListener('click', ((index) => {
+                return (e) => {
+                    e.preventDefault();
+                    e.stopPropagation(); // Prevent drag from starting
+                    toggleAlpha(index);
+                };
+            })(i));
+        }
+    }
     
     document.getElementById('randomize-everything')?.addEventListener('click', randomizeEverything);
     document.getElementById('undo')?.addEventListener('click', undo);
@@ -189,6 +219,529 @@ function setupEventListeners() {
     updateHistoryButtons();
     setupCanvasInteraction();
     updateGradientAngleVisibility();
+    initializeColors(); // Initialize with 2 colors
+    setupColorDragAndDrop();
+    setupAddColorButton();
+    setupDropdownNavigation();
+}
+
+function updateColorControlsVisibility(colorCount) {
+    const colorItems = document.querySelectorAll('.color-item');
+    colorItems.forEach((item, index) => {
+        if (index < colorCount) {
+            item.style.display = 'flex';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+function getActiveColors() {
+    const colorCount = getCurrentColorCount();
+    
+    if (colorCache && colorCache.count === colorCount && colorCache.version === colorCacheVersion) {
+        return colorCache.colors;
+    }
+    
+    const colors = [];
+    for (let i = 0; i < colorCount; i++) {
+        const colorPicker = document.getElementById(`color-${i}`);
+        const alphaToggle = document.getElementById(`alpha-toggle-${i}`);
+        if (colorPicker && alphaToggle) {
+            const alphaValue = parseInt(alphaToggle.dataset.alpha) / 100.0;
+            colors.push({
+                hex: colorPicker.value,
+                alpha: alphaValue
+            });
+        }
+    }
+    
+    colorCache = {
+        colors: colors,
+        count: colorCount,
+        version: colorCacheVersion
+    };
+    
+    return colors;
+}
+
+function toggleAlpha(colorIndex) {
+    const alphaToggle = document.getElementById(`alpha-toggle-${colorIndex}`);
+    if (!alphaToggle) return;
+    
+    const currentAlpha = parseInt(alphaToggle.dataset.alpha);
+    const newAlpha = currentAlpha === 100 ? 0 : 100;
+    
+    alphaToggle.dataset.alpha = newAlpha;
+    
+    const icon = alphaToggle.querySelector('i');
+    if (icon) {
+        if (newAlpha === 0) {
+            icon.className = 'ri-eye-off-line';
+        } else {
+            icon.className = 'ri-eye-line';
+        }
+    }
+    
+    invalidateColorCache();
+    checkForCustomChanges();
+    debouncedGenerateGradient();
+}
+
+function invalidateColorCache() {
+    colorCacheVersion++;
+    rgbColorCache = null;
+}
+
+function getRgbColors() {
+    if (rgbColorCache && rgbColorCache.version === colorCacheVersion) {
+        return rgbColorCache.colors;
+    }
+    
+    const activeColors = getActiveColors();
+    const rgbColors = {};
+    
+    activeColors.forEach((colorData, index) => {
+        const rgb = hexToRgb(colorData.hex);
+        rgbColors[`color_${index + 1}`] = [rgb.r / 255.0, rgb.g / 255.0, rgb.b / 255.0, colorData.alpha];
+    });
+    
+    for (let i = activeColors.length; i < 8; i++) {
+        rgbColors[`color_${i + 1}`] = [0.0, 0.0, 0.0, 0.0];
+    }
+    
+    rgbColorCache = {
+        colors: rgbColors,
+        version: colorCacheVersion
+    };
+    
+    return rgbColors;
+}
+
+function updatePresetColors() {
+    const activeColors = getActiveColors();
+    presetColors = [...activeColors];
+}
+
+function checkForCustomChanges() {
+    if (!currentPreset) return;
+    
+    const activeColors = getActiveColors();
+    const hasChanged = activeColors.length !== presetColors.length || 
+                      activeColors.some((color, index) => color !== presetColors[index]);
+    
+    if (hasChanged) {
+        currentPreset = 'custom';
+        const presetSelect = document.getElementById('color-preset');
+        if (presetSelect) {
+            // Add custom option if it doesn't exist
+            let customOption = presetSelect.querySelector('option[value="custom"]');
+            if (!customOption) {
+                customOption = document.createElement('option');
+                customOption.value = 'custom';
+                customOption.textContent = 'Custom';
+                presetSelect.insertBefore(customOption, presetSelect.children[1]);
+            }
+            presetSelect.value = 'custom';
+        }
+    }
+}
+
+function resetToNoPreset() {
+    currentPreset = '';
+    presetColors = [];
+    const presetSelect = document.getElementById('color-preset');
+    if (presetSelect) {
+        // Remove custom option if it exists
+        const customOption = presetSelect.querySelector('option[value="custom"]');
+        if (customOption) {
+            customOption.remove();
+        }
+        presetSelect.value = '';
+    }
+}
+
+function initializeColors() {
+    updateColorControlsVisibility(2);
+    updateAddButtonState();
+}
+
+function getCurrentColorCount() {
+    const colorItems = document.querySelectorAll('.color-item');
+    let count = 0;
+    colorItems.forEach(item => {
+        if (item.style.display !== 'none') {
+            count++;
+        }
+    });
+    return count;
+}
+
+function updateAddButtonState() {
+    const addBtn = document.getElementById('add-color-btn');
+    const currentCount = getCurrentColorCount();
+    if (addBtn) {
+        addBtn.disabled = currentCount >= 6;
+        if (currentCount >= 6) {
+            addBtn.style.display = 'none';
+        } else {
+            addBtn.style.display = 'flex';
+        }
+    }
+}
+
+function setupAddColorButton() {
+    const addBtn = document.getElementById('add-color-btn');
+    if (addBtn) {
+        addBtn.addEventListener('click', addColor);
+    }
+    
+    const randomizeBtn = document.getElementById('randomize-colors');
+    if (randomizeBtn) {
+        randomizeBtn.addEventListener('click', () => {
+            const randomSeed = Math.floor(Math.random() * 10000);
+            randomizeColors(randomSeed);
+        });
+    }
+}
+
+function setupDropdownNavigation() {
+    const navButtons = document.querySelectorAll('.dropdown-nav-btn');
+    
+    navButtons.forEach(button => {
+        button.addEventListener('click', (e) => {
+            e.preventDefault();
+            const direction = button.dataset.direction;
+            const targetId = button.dataset.target;
+            const dropdown = document.getElementById(targetId);
+            
+            if (dropdown) {
+                navigateDropdown(dropdown, direction);
+            }
+        });
+    });
+}
+
+function navigateDropdown(dropdown, direction) {
+    const options = Array.from(dropdown.options);
+    const currentIndex = dropdown.selectedIndex;
+    let newIndex;
+    
+    if (direction === 'prev') {
+        newIndex = currentIndex > 0 ? currentIndex - 1 : options.length - 1;
+    } else if (direction === 'next') {
+        newIndex = currentIndex < options.length - 1 ? currentIndex + 1 : 0;
+    }
+    
+    if (newIndex !== undefined && newIndex !== currentIndex) {
+        dropdown.selectedIndex = newIndex;
+        
+        // Trigger change event
+        const changeEvent = new Event('change', { bubbles: true });
+        dropdown.dispatchEvent(changeEvent);
+    }
+}
+
+function addColor() {
+    const currentCount = getCurrentColorCount();
+    if (currentCount >= 6) return;
+    
+    // Get the last visible color
+    const lastColorPicker = document.getElementById(`color-${currentCount - 1}`);
+    let newColor = '#ff6b6b'; // fallback
+    
+    if (lastColorPicker) {
+        newColor = generateDarkerColor(lastColorPicker.value);
+    }
+    
+    // Show the next color item and set its value
+    const nextColorPicker = document.getElementById(`color-${currentCount}`);
+    const nextAlphaToggle = document.getElementById(`alpha-toggle-${currentCount}`);
+    const nextColorItem = nextColorPicker?.closest('.color-item');
+    
+    if (nextColorItem && nextColorPicker && nextAlphaToggle) {
+        nextColorItem.style.display = 'grid';
+        nextColorPicker.value = newColor;
+        nextAlphaToggle.dataset.alpha = '100'; // Default to fully opaque
+        
+        // Ensure the icon is set to visible state
+        const icon = nextAlphaToggle.querySelector('i');
+        if (icon) {
+            icon.className = 'ri-eye-line';
+        }
+        
+        updateColorLabels();
+        updateAddButtonState();
+        invalidateColorCache();
+        checkForCustomChanges();
+        debouncedGenerateGradient();
+    }
+}
+
+function generateDarkerColor(hexColor) {
+    // Convert hex to RGB
+    const rgb = hexToRgb(hexColor);
+    if (!rgb) return hexColor;
+    
+    // Make it darker by reducing each component by 20-40%
+    const factor = 0.7; // Make it 30% darker
+    const newR = Math.round(rgb.r * factor);
+    const newG = Math.round(rgb.g * factor);
+    const newB = Math.round(rgb.b * factor);
+    
+    // Convert back to hex
+    return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
+}
+
+function removeColor(colorIndex) {
+    const currentCount = getCurrentColorCount();
+    if (currentCount <= 2) return; // Don't allow removing if only 2 colors left
+    
+    // Get all current colors
+    const colors = [];
+    for (let i = 0; i < currentCount; i++) {
+        if (i !== colorIndex) {
+            const colorPicker = document.getElementById(`color-${i}`);
+            if (colorPicker) {
+                colors.push(colorPicker.value);
+            }
+        }
+    }
+    
+    // Hide the last color item
+    const lastColorItem = document.querySelector(`.color-item[data-color-index="${currentCount - 1}"]`);
+    if (lastColorItem) {
+        lastColorItem.style.display = 'none';
+    }
+    
+    // Redistribute remaining colors
+    colors.forEach((color, index) => {
+        const colorPicker = document.getElementById(`color-${index}`);
+        if (colorPicker) {
+            colorPicker.value = color;
+        }
+    });
+    
+    updateColorLabels();
+    updateAddButtonState();
+    invalidateColorCache();
+    checkForCustomChanges();
+    debouncedGenerateGradient();
+}
+
+let draggedElement = null;
+let draggedIndex = -1;
+
+function setupColorDragAndDrop() {
+    const colorControls = document.getElementById('color-controls');
+    const trashBin = document.getElementById('trash-bin');
+    
+    // Color controls events
+    colorControls.addEventListener('dragstart', handleDragStart);
+    colorControls.addEventListener('dragover', handleDragOver);
+    colorControls.addEventListener('dragenter', handleDragEnter);
+    colorControls.addEventListener('dragleave', handleDragLeave);
+    colorControls.addEventListener('drop', handleDrop);
+    colorControls.addEventListener('dragend', handleDragEnd);
+    
+    // Trash bin events
+    if (trashBin) {
+        trashBin.addEventListener('dragover', handleTrashDragOver);
+        trashBin.addEventListener('dragenter', handleTrashDragEnter);
+        trashBin.addEventListener('dragleave', handleTrashDragLeave);
+        trashBin.addEventListener('drop', handleTrashDrop);
+    }
+}
+
+function handleDragStart(e) {
+    if (!e.target.classList.contains('color-item')) return;
+    
+    draggedElement = e.target;
+    draggedIndex = parseInt(e.target.dataset.colorIndex);
+    
+    e.target.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', e.target.outerHTML);
+}
+
+
+function handleDragEnter(e) {
+    const colorItem = e.target.closest('.color-item');
+    if (colorItem && colorItem !== draggedElement) {
+        updateDropIndicator(e, colorItem);
+    }
+}
+
+function handleDragLeave(e) {
+    const colorItem = e.target.closest('.color-item');
+    if (colorItem) {
+        colorItem.classList.remove('drag-over-left', 'drag-over-right');
+    }
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    
+    const colorItem = e.target.closest('.color-item');
+    if (colorItem && colorItem !== draggedElement) {
+        updateDropIndicator(e, colorItem);
+    }
+}
+
+function updateDropIndicator(e, colorItem) {
+    // Remove existing indicators
+    document.querySelectorAll('.color-item').forEach(item => {
+        item.classList.remove('drag-over-left', 'drag-over-right');
+    });
+    
+    const rect = colorItem.getBoundingClientRect();
+    const mouseX = e.clientX;
+    const itemCenterX = rect.left + rect.width / 2;
+    
+    const draggedIdx = parseInt(draggedElement.dataset.colorIndex);
+    const targetIdx = parseInt(colorItem.dataset.colorIndex);
+    
+    // Determine which side to show the indicator based on mouse position and drag direction
+    if (mouseX < itemCenterX) {
+        // Mouse is on the left side of the item
+        if (draggedIdx > targetIdx) {
+            // Dragging from right to left - show left indicator
+            colorItem.classList.add('drag-over-left');
+        } else {
+            // Dragging from left to right - show left indicator (insert before)
+            colorItem.classList.add('drag-over-left');
+        }
+    } else {
+        // Mouse is on the right side of the item
+        if (draggedIdx < targetIdx) {
+            // Dragging from left to right - show right indicator
+            colorItem.classList.add('drag-over-right');
+        } else {
+            // Dragging from right to left - show right indicator (insert after)
+            colorItem.classList.add('drag-over-right');
+        }
+    }
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    
+    const dropTarget = e.target.closest('.color-item');
+    if (!dropTarget || dropTarget === draggedElement) return;
+    
+    const dropIndex = parseInt(dropTarget.dataset.colorIndex);
+    const rect = dropTarget.getBoundingClientRect();
+    const mouseX = e.clientX;
+    const itemCenterX = rect.left + rect.width / 2;
+    
+    let finalDropIndex = dropIndex;
+    
+    // Adjust drop index based on which side of the item we're dropping on
+    if (mouseX > itemCenterX && draggedIndex < dropIndex) {
+        // Dropping on the right side when dragging left to right
+        // Keep the original drop index (insert after the target)
+    } else if (mouseX < itemCenterX && draggedIndex > dropIndex) {
+        // Dropping on the left side when dragging right to left  
+        // Keep the original drop index (insert before the target)
+    } else if (mouseX > itemCenterX && draggedIndex > dropIndex) {
+        // Dropping on the right side when dragging right to left
+        finalDropIndex = dropIndex + 1;
+    } else if (mouseX < itemCenterX && draggedIndex < dropIndex) {
+        // Dropping on the left side when dragging left to right
+        finalDropIndex = dropIndex - 1;
+    }
+    
+    // Reorder the colors
+    reorderColors(draggedIndex, finalDropIndex);
+    
+    // Clean up visual states
+    document.querySelectorAll('.color-item').forEach(item => {
+        item.classList.remove('drag-over-left', 'drag-over-right');
+    });
+}
+
+function handleDragEnd(e) {
+    if (e.target.classList.contains('color-item')) {
+        e.target.classList.remove('dragging');
+    }
+    
+    document.querySelectorAll('.color-item').forEach(item => {
+        item.classList.remove('drag-over-left', 'drag-over-right');
+    });
+    
+    draggedElement = null;
+    draggedIndex = -1;
+}
+
+function handleTrashDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+
+function handleTrashDragEnter(e) {
+    e.target.closest('.trash-bin').classList.add('drag-over');
+}
+
+function handleTrashDragLeave(e) {
+    e.target.closest('.trash-bin').classList.remove('drag-over');
+}
+
+function handleTrashDrop(e) {
+    e.preventDefault();
+    const trashBin = e.target.closest('.trash-bin');
+    trashBin.classList.remove('drag-over');
+    
+    if (draggedElement && draggedIndex !== -1) {
+        removeColor(draggedIndex);
+    }
+}
+
+function reorderColors(fromIndex, toIndex) {
+    const currentCount = getCurrentColorCount();
+    
+    // Only reorder within visible colors
+    if (fromIndex >= currentCount || toIndex >= currentCount) return;
+    
+    // Get all current color values
+    const colors = [];
+    for (let i = 0; i < currentCount; i++) {
+        const colorPicker = document.getElementById(`color-${i}`);
+        if (colorPicker) {
+            colors.push(colorPicker.value);
+        }
+    }
+    
+    // Reorder the array
+    const [movedColor] = colors.splice(fromIndex, 1);
+    colors.splice(toIndex, 0, movedColor);
+    
+    // Update the color pickers with new order
+    colors.forEach((color, index) => {
+        const colorPicker = document.getElementById(`color-${index}`);
+        if (colorPicker) {
+            colorPicker.value = color;
+        }
+    });
+    
+    // Update labels to reflect new order
+    updateColorLabels();
+    
+    // Invalidate cache and regenerate
+    invalidateColorCache();
+    checkForCustomChanges();
+    debouncedGenerateGradient();
+}
+
+function updateColorLabels() {
+    const colorItems = document.querySelectorAll('.color-item');
+    colorItems.forEach((item, index) => {
+        const label = item.querySelector('label');
+        if (label) {
+            label.textContent = `${index + 1}.`;
+        }
+        item.dataset.colorIndex = index;
+    });
 }
 
 function debouncedGenerateGradient() {
@@ -308,25 +861,8 @@ function updateGradientAngleVisibility() {
 }
 
 function collectParameters() {
-    let currentColors = {
-        color_1: [1.0, 0.4, 0.2],
-        color_2: [0.2, 0.2, 0.3],
-        color_3: [0.6, 0.8, 0.9],
-        color_4: [0.1, 0.1, 0.1],
-    };
-    
-    if (gradientGenerator) {
-        try {
-            const paramsJson = gradientGenerator.get_params_json();
-            const currentParams = JSON.parse(paramsJson);
-            if (currentParams.color_1) currentColors.color_1 = currentParams.color_1;
-            if (currentParams.color_2) currentColors.color_2 = currentParams.color_2;
-            if (currentParams.color_3) currentColors.color_3 = currentParams.color_3;
-            if (currentParams.color_4) currentColors.color_4 = currentParams.color_4;
-        } catch (e) {
-            console.log('Using default colors');
-        }
-    }
+    const colorParams = getRgbColors();
+    const activeColors = getActiveColors();
     
     return {
         seed: parseInt(document.getElementById('seed')?.value || '42'),
@@ -341,8 +877,18 @@ function collectParameters() {
         offset_y: canvasOffset.y,
         zoom: canvasZoom,
         canvas_rotation: canvasRotation,
-        ...currentColors
+        color_count: activeColors.length,
+        ...colorParams
     };
+}
+
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
 }
 
 function updateUIFromParams(params) {
@@ -402,30 +948,93 @@ async function exportImage() {
 }
 
 function applyColorPreset(colorPresetName) {
-    if (!gradientGenerator) return;
+    const presets = {
+        sunset: ['#ff6b6b', '#ff8e53', '#ff6b9d', '#c44569', '#fd79a8', '#e17055'],
+        ocean: ['#0abde3', '#006ba6', '#0c2461', '#1e3799', '#74b9ff', '#00cec9'],
+        forest: ['#00d2d3', '#54a0ff', '#5f27cd', '#00b894', '#55a3ff', '#26de81'],
+        cosmic: ['#a55eea', '#26de81', '#fd79a8', '#fdcb6e', '#6c5ce7', '#e84393'],
+        fire: ['#ff3838', '#ff9500', '#ffdd59', '#ff6348', '#e17055', '#d63031'],
+        ice: ['#7bed9f', '#70a1ff', '#5352ed', '#40407a', '#74b9ff', '#a29bfe'],
+        earth: ['#2c2c54', '#40407a', '#706fd3', '#f7f1e3', '#6c5ce7', '#fdcb6e'],
+        neon: ['#ff006e', '#8338ec', '#3a86ff', '#06ffa5', '#fd79a8', '#fdcb6e']
+    };
     
-    try {
-        gradientGenerator.apply_color_preset(colorPresetName);
-        
+    const colors = presets[colorPresetName];
+    if (colors) {
+        updateColorPickers(colors);
         generateGradientImmediate();
-        
         console.log(`Applied color preset: ${colorPresetName}`);
-    } catch (error) {
-        console.error('Error applying color preset:', error);
     }
 }
 
 function randomizeColors(seed) {
-    if (!gradientGenerator) return;
+    const random = new SeededRandom(seed);
+    const colorCount = getCurrentColorCount();
+    const colors = [];
     
-    try {
-        gradientGenerator.randomize_colors(seed);
-        
-        generateGradientImmediate();
-        
-        console.log(`Randomized colors with seed: ${seed}`);
-    } catch (error) {
-        console.error('Error randomizing colors:', error);
+    for (let i = 0; i < colorCount; i++) {
+        const hue = random.next() * 360;
+        const saturation = 50 + random.next() * 50;
+        const lightness = 30 + random.next() * 40;
+        colors.push(hslToHex(hue, saturation, lightness));
+    }
+    
+    updateColorPickers(colors);
+    resetToNoPreset(); // Reset preset when randomizing
+    generateGradientImmediate();
+    console.log(`Randomized colors with seed: ${seed}`);
+}
+
+function updateColorPickers(colors) {
+    colors.forEach((color, index) => {
+        const colorPicker = document.getElementById(`color-${index}`);
+        const alphaToggle = document.getElementById(`alpha-toggle-${index}`);
+        if (colorPicker) {
+            if (typeof color === 'string') {
+                // Legacy hex color format
+                colorPicker.value = color;
+                if (alphaToggle) {
+                    alphaToggle.dataset.alpha = '100';
+                    const icon = alphaToggle.querySelector('i');
+                    if (icon) icon.className = 'ri-eye-line';
+                }
+            } else {
+                // New format with alpha
+                colorPicker.value = color.hex;
+                if (alphaToggle) {
+                    const alphaValue = Math.round(color.alpha * 100);
+                    alphaToggle.dataset.alpha = alphaValue.toString();
+                    const icon = alphaToggle.querySelector('i');
+                    if (icon) {
+                        icon.className = alphaValue === 0 ? 'ri-eye-off-line' : 'ri-eye-line';
+                    }
+                }
+            }
+        }
+    });
+    invalidateColorCache();
+}
+
+function hslToHex(h, s, l) {
+    l /= 100;
+    const a = s * Math.min(l, 1 - l) / 100;
+    const f = n => {
+        const k = (n + h / 30) % 12;
+        const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+        return Math.round(255 * color).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+class SeededRandom {
+    constructor(seed) {
+        this.seed = seed % 2147483647;
+        if (this.seed <= 0) this.seed += 2147483646;
+    }
+    
+    next() {
+        this.seed = this.seed * 16807 % 2147483647;
+        return (this.seed - 1) / 2147483646;
     }
 }
 
@@ -723,11 +1332,40 @@ function advancedRandomize(creativityLevel) {
         updateResolutionStatus('Advanced randomizing...', true);
         
         const randomSeed = Math.floor(Math.random() * 10000);
-        gradientGenerator.randomize_with_advanced_rng(randomSeed, creativityLevel);
+        const random = new SeededRandom(randomSeed);
+        const creativity = Math.max(0, Math.min(1, creativityLevel));
         
-        const paramsJson = gradientGenerator.get_params_json();
-        const params = JSON.parse(paramsJson);
-        updateUIFromParams(params);
+        // Randomize parameters
+        document.getElementById('flow-intensity').value = random.next() * creativity;
+        document.getElementById('flow-intensity-value').textContent = (random.next() * creativity).toFixed(2);
+        
+        document.getElementById('organic-distortion').value = random.next() * creativity;
+        document.getElementById('organic-distortion-value').textContent = (random.next() * creativity).toFixed(2);
+        
+        document.getElementById('color-variance').value = random.next() * creativity * 0.3;
+        document.getElementById('color-variance-value').textContent = (random.next() * creativity * 0.3).toFixed(2);
+        
+        const colorSpread = 0.5 + random.next() * creativity;
+        document.getElementById('color-spread').value = colorSpread;
+        document.getElementById('color-spread-value').textContent = colorSpread.toFixed(1);
+        
+        // Randomize colors
+        const colorCount = getCurrentColorCount();
+        const colors = [];
+        
+        for (let i = 0; i < colorCount; i++) {
+            const hue = random.next() * 360;
+            const saturation = 40 + random.next() * 60 * creativity;
+            const lightness = i % 2 === 0 ? 20 + random.next() * 50 : 50 + random.next() * 50;
+            colors.push(hslToHex(hue, saturation, lightness));
+        }
+        
+        updateColorPickers(colors);
+        
+        // Randomize blend mode
+        const blendModes = ['smooth', 'radial', 'angular', 'diamond', 'vortex'];
+        const modeIndex = Math.floor(random.next() * blendModes.length);
+        document.getElementById('blend-mode').value = blendModes[modeIndex];
         
         generateGradientImmediate();
         
