@@ -4,8 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gradient Generator</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
     <link href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <link rel="preload" href="./pkg/gradient_noise_wasm.js" as="script">
+    <link rel="preload" href="./pkg/gradient_noise_wasm_bg.wasm" as="fetch" type="application/wasm" crossorigin>
 </head>
 <body>
     <div class="loading" id="loading">
@@ -21,19 +25,58 @@
         
         <div class="controls">
             <div class="control-group">
-                <h3>Creative Controls</h3>
-                
-                <div class="control-item">
-                    <label>Seed <span class="value-display" id="seed-value">42</span></label>
-                    <input type="range" class="slider" id="seed" min="0" max="9999" value="42">
-                </div>
-                
-                <div class="control-item">
-                    <button class="button secondary" id="randomize">Randomize</button>
-            </div>
+                <h3>View</h3>
 
                 <div class="control-item">
-                    <label>Blend Mode</label>
+                    <label>Aspect Ratio</label>
+                    <div class="dropdown-container">
+                        <select class="dropdown" id="aspect-ratio">
+                            <option value="1:1">Square (1:1)</option>
+                            <option value="16:9">Widescreen (16:9)</option>
+                            <option value="4:3">Standard (4:3)</option>
+                            <option value="3:2">Photo (3:2)</option>
+                            <option value="21:9">Ultrawide (21:9)</option>
+                            <option value="9:16">Portrait (9:16)</option>
+                            <option value="3:4">Portrait Standard (3:4)</option>
+                            <option value="2:3">Portrait Photo (2:3)</option>
+                            <option value="custom">Custom</option>
+                    </select>
+                        <div class="dropdown-nav">
+                            <button class="dropdown-nav-btn" data-direction="prev" data-target="aspect-ratio" title="Previous">
+                                <i class="ri-arrow-up-s-line"></i>
+                            </button>
+                            <button class="dropdown-nav-btn" data-direction="next" data-target="aspect-ratio" title="Next">
+                                <i class="ri-arrow-down-s-line"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dimension-controls" id="dimension-controls">
+                    <div class="control-item dimension-row">
+                        <div class="dimension-group">
+                            <label>Width</label>
+                            <input type="number" class="dimension-input" id="width" min="200" max="8000" step="100" value="2000">
+                        </div>
+                        <div class="dimension-group">
+                            <label>Height</label>
+                            <input type="number" class="dimension-input" id="height" min="200" max="8000" step="100" value="2000">
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="control-group">
+                <div class="control-group-header">
+                    <h3>Blending</h3>
+                    <button class="randomize-colors-btn" id="randomize-blending" title="Randomize Blending">
+                        <i class="ri-dice-line"></i>
+                    </button>
+                </div>
+
+                <div class="control-item">
+                    <label>Mode</label>
                     <div class="dropdown-container">
                         <select class="dropdown" id="blend-mode">
                             <option value="smooth">Smooth Linear</option>
@@ -41,7 +84,7 @@
                             <option value="angular">Spiral Twist</option>
                             <option value="diamond">Diamond Shape</option>
                             <option value="vortex">Swirling Vortex</option>
-                        </select>
+                    </select>
                         <div class="dropdown-nav">
                             <button class="dropdown-nav-btn" data-direction="prev" data-target="blend-mode" title="Previous">
                                 <i class="ri-arrow-up-s-line"></i>
@@ -54,9 +97,14 @@
             </div>
 
                 <div class="control-item">
+                    <label>Seed <span class="value-display" id="seed-value">42</span></label>
+                    <input type="range" class="slider" id="seed" min="0" max="9999" value="42">
+                </div>
+
+                <div class="control-item">
                     <label>Color Spread <span class="value-display" id="color-spread-value">0.7</span></label>
                     <input type="range" class="slider" id="color-spread" min="0.2" max="2.0" step="0.1" value="0.7">
-            </div>
+                </div>
 
                 <div class="control-item">
                     <label>Flow Intensity <span class="value-display" id="flow-intensity-value">0.3</span></label>
@@ -66,17 +114,13 @@
                 <div class="control-item">
                     <label>Organic Distortion <span class="value-display" id="organic-distortion-value">0.2</span></label>
                     <input type="range" class="slider" id="organic-distortion" min="0.0" max="1.0" step="0.05" value="0.2">
-                </div>
+            </div>
 
                 <div class="control-item">
                     <label>Color Variance <span class="value-display" id="color-variance-value">0.1</span></label>
                     <input type="range" class="slider" id="color-variance" min="0.0" max="0.3" step="0.01" value="0.1">
                 </div>
                 
-                <div class="control-item gradient-angle-control" id="gradient-angle-control">
-                    <label>Gradient Angle <span class="value-display" id="gradient-angle-value">45</span></label>
-                    <input type="range" class="slider" id="gradient-angle" min="0" max="360" step="5" value="45">
-            </div>
 
                 <div class="control-item">
                     <label>Center Bias <span class="value-display" id="center-bias-value">0.5</span></label>
@@ -91,7 +135,7 @@
 
             <div class="control-group">
                 <div class="control-group-header">
-                    <h3>Colors</h3>
+                <h3>Colors</h3>
                     <button class="randomize-colors-btn" id="randomize-colors" title="Randomize Colors">
                         <i class="ri-dice-line"></i>
                     </button>
@@ -101,7 +145,7 @@
                     <label>Color Preset</label>
                     <div class="dropdown-container">
                         <select class="dropdown" id="color-preset">
-                            <option value="">Choose preset...</option>
+                            <option value="" disabled selected>Choose preset...</option>
                             <option value="sunset">Sunset</option>
                             <option value="ocean">Ocean</option>
                             <option value="forest">Forest</option>
@@ -143,7 +187,7 @@
                         <input type="color" class="color-picker" id="color-1" value="#4ecdc4">
                         <i class="ri-draggable drag-handle"></i>
                     </div>
-                    <div class="color-item" draggable="true" data-color-index="2" style="display: none;">
+                    <div class="color-item" draggable="true" data-color-index="2">
                         <div class="color-label-group">
                             <label>3.</label>
                             <button class="alpha-toggle" id="alpha-toggle-2" data-alpha="100" title="Toggle Opacity">
@@ -153,7 +197,7 @@
                         <input type="color" class="color-picker" id="color-2" value="#45b7d1">
                         <i class="ri-draggable drag-handle"></i>
                     </div>
-                    <div class="color-item" draggable="true" data-color-index="3" style="display: none;">
+                    <div class="color-item" draggable="true" data-color-index="3">
                         <div class="color-label-group">
                             <label>4.</label>
                             <button class="alpha-toggle" id="alpha-toggle-3" data-alpha="100" title="Toggle Opacity">
@@ -195,89 +239,39 @@
 
             <div class="control-group">
                 <h3>Output</h3>
-                
-                <div class="control-item">
-                    <label>Aspect Ratio</label>
-                    <div class="dropdown-container">
-                        <select class="dropdown" id="aspect-ratio">
-                            <option value="1:1">Square (1:1)</option>
-                            <option value="16:9">Widescreen (16:9)</option>
-                            <option value="4:3">Standard (4:3)</option>
-                            <option value="3:2">Photo (3:2)</option>
-                            <option value="21:9">Ultrawide (21:9)</option>
-                            <option value="9:16">Portrait (9:16)</option>
-                            <option value="3:4">Portrait Standard (3:4)</option>
-                            <option value="2:3">Portrait Photo (2:3)</option>
-                            <option value="custom">Custom</option>
-                        </select>
-                        <div class="dropdown-nav">
-                            <button class="dropdown-nav-btn" data-direction="prev" data-target="aspect-ratio" title="Previous">
-                                <i class="ri-arrow-up-s-line"></i>
-                            </button>
-                            <button class="dropdown-nav-btn" data-direction="next" data-target="aspect-ratio" title="Next">
-                                <i class="ri-arrow-down-s-line"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="dimension-controls" id="dimension-controls">
-                <div class="control-item">
-                        <label>Width <span class="value-display" id="width-value">2000</span></label>
-                        <input type="range" class="slider" id="width" min="256" max="4096" step="64" value="2000">
-                </div>
-                    
-                <div class="control-item">
-                        <label>Height <span class="value-display" id="height-value">2000</span></label>
-                        <input type="range" class="slider" id="height" min="256" max="4096" step="64" value="2000">
-                </div>
-                    
-                <div class="control-item">
-                    <button class="button primary" id="apply-dimensions">Apply Dimensions</button>
-                </div>
-            </div>
 
             <div class="composition-controls">
                 <h4>Composition</h4>
                 
-                <div class="composition-info">
-                    <small id="composition-offset">Offset: 0, 0</small>
-                    <small id="composition-zoom">Zoom: 1.0x</small>
+                <div class="composition-status">
+                    <small id="resolution-status">Gradient Engine - Ready</small>
                 </div>
                 
-                <div class="control-item">
+                <div class="composition-info">
+                    <div class="composition-values">
+                        <small id="composition-offset">Offset: 0, 0</small>
+                        <small id="composition-zoom">Zoom: 1.0x</small>
+                    </div>
                     <button class="button secondary" id="reset-composition">Reset View</button>
                 </div>
                 
                 <div class="composition-help">
                     <small>Drag canvas to pan • Scroll to zoom</small>
                 </div>
-                </div>
+            </div>
             </div>
 
-            <div class="control-group">
-                <h3>Randomize & History</h3>
-
-                <div class="control-item">
-                    <button class="button primary" id="randomize-everything">Randomize Everything</button>
-                </div>
-                
-                <div class="control-item">
-                    <button class="button secondary" id="advanced-randomize">Advanced Randomize</button>
-                </div>
-                
-                <div class="history-controls">
-                    <button class="button secondary" id="undo" disabled>Undo</button>
-                    <button class="button secondary" id="redo" disabled>Redo</button>
-            </div>
-
-                <div class="control-item">
-                    <button class="button" id="export">Export PNG</button>
-                </div>
-                
-                
-                <div class="control-item status-indicator">
-                    <small id="resolution-status">Gradient Engine - Ready</small>
+            <div class="control-group export-status-group">
+                <div class="export-controls">
+                    <div class="history-controls">
+                        <button class="randomize-colors-btn" id="undo" disabled title="Undo">
+                            <i class="ri-arrow-go-back-line"></i>
+                        </button>
+                        <button class="randomize-colors-btn" id="redo" disabled title="Redo">
+                            <i class="ri-arrow-go-forward-line"></i>
+                        </button>
+                    </div>
+                    <button class="button export-button" id="export">Export PNG</button>
                 </div>
             </div>
         </div>

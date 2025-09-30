@@ -32,6 +32,22 @@ let rgbColorCache = null;
 let currentPreset = '';
 let presetColors = [];
 
+const domCache = {
+    elements: new Map(),
+    get(id) {
+        if (!this.elements.has(id)) {
+            this.elements.set(id, document.getElementById(id));
+        }
+        return this.elements.get(id);
+    },
+    getAll(selector) {
+        return document.querySelectorAll(selector);
+    },
+    clear() {
+        this.elements.clear();
+    }
+};
+
 async function init() {
     try {
         console.log('Initializing Gradient Generator...');
@@ -129,7 +145,7 @@ function setupResponsiveCanvas() {
 function setupEventListeners() {
     const sliders = [
         'seed', 'color-spread', 'flow-intensity', 'organic-distortion', 
-        'color-variance', 'gradient-angle', 'center-bias', 'width', 'height', 'canvas-rotation'
+        'color-variance', 'center-bias', 'canvas-rotation'
     ];
     
     sliders.forEach(id => {
@@ -156,7 +172,6 @@ function setupEventListeners() {
     const blendModeSelect = document.getElementById('blend-mode');
     if (blendModeSelect) {
         blendModeSelect.addEventListener('change', () => {
-            updateGradientAngleVisibility();
             debouncedGenerateGradient();
         });
     }
@@ -165,12 +180,6 @@ function setupEventListeners() {
     if (aspectRatioSelect) {
         aspectRatioSelect.addEventListener('change', handleAspectRatioChange);
     }
-    document.getElementById('randomize')?.addEventListener('click', () => {
-        const newSeed = Math.floor(Math.random() * 10000);
-        document.getElementById('seed').value = newSeed;
-        document.getElementById('seed-value').textContent = newSeed;
-        generateGradientImmediate();
-    });
     
     document.getElementById('export')?.addEventListener('click', exportImage);
     
@@ -185,7 +194,6 @@ function setupEventListeners() {
         });
     }
     
-    // Color picker and alpha toggle event listeners
     for (let i = 0; i < 6; i++) {
         const colorPicker = document.getElementById(`color-${i}`);
         const alphaToggle = document.getElementById(`alpha-toggle-${i}`);
@@ -202,27 +210,52 @@ function setupEventListeners() {
             alphaToggle.addEventListener('click', ((index) => {
                 return (e) => {
                     e.preventDefault();
-                    e.stopPropagation(); // Prevent drag from starting
+                    e.stopPropagation();
                     toggleAlpha(index);
                 };
             })(i));
         }
     }
     
-    document.getElementById('randomize-everything')?.addEventListener('click', randomizeEverything);
     document.getElementById('undo')?.addEventListener('click', undo);
     document.getElementById('redo')?.addEventListener('click', redo);
-    document.getElementById('apply-dimensions')?.addEventListener('click', applyDimensions);
     document.getElementById('reset-composition')?.addEventListener('click', resetComposition);
-    document.getElementById('advanced-randomize')?.addEventListener('click', () => advancedRandomize(0.9));
+    document.getElementById('randomize-blending')?.addEventListener('click', () => {
+        randomizeBlending();
+    });
     
     updateHistoryButtons();
     setupCanvasInteraction();
-    updateGradientAngleVisibility();
-    initializeColors(); // Initialize with 2 colors
+    initializeColors();
     setupColorDragAndDrop();
     setupAddColorButton();
     setupDropdownNavigation();
+    setupDimensionInputs();
+}
+
+function setupDimensionInputs() {
+    const widthInput = document.getElementById('width');
+    const heightInput = document.getElementById('height');
+    
+    if (widthInput) {
+        widthInput.addEventListener('input', () => {
+            const width = parseInt(widthInput.value);
+            const height = parseInt(document.getElementById('height').value);
+            if (width && height) {
+                applyDimensionsInternal(width, height);
+            }
+        });
+    }
+    
+    if (heightInput) {
+        heightInput.addEventListener('input', () => {
+            const width = parseInt(document.getElementById('width').value);
+            const height = parseInt(heightInput.value);
+            if (width && height) {
+                applyDimensionsInternal(width, height);
+            }
+        });
+    }
 }
 
 function updateColorControlsVisibility(colorCount) {
@@ -245,8 +278,8 @@ function getActiveColors() {
     
     const colors = [];
     for (let i = 0; i < colorCount; i++) {
-        const colorPicker = document.getElementById(`color-${i}`);
-        const alphaToggle = document.getElementById(`alpha-toggle-${i}`);
+        const colorPicker = domCache.get(`color-${i}`);
+        const alphaToggle = domCache.get(`alpha-toggle-${i}`);
         if (colorPicker && alphaToggle) {
             const alphaValue = parseInt(alphaToggle.dataset.alpha) / 100.0;
             colors.push({
@@ -266,8 +299,9 @@ function getActiveColors() {
 }
 
 function toggleAlpha(colorIndex) {
-    const alphaToggle = document.getElementById(`alpha-toggle-${colorIndex}`);
-    if (!alphaToggle) return;
+    const alphaToggle = domCache.get(`alpha-toggle-${colorIndex}`);
+    const colorPicker = domCache.get(`color-${colorIndex}`);
+    if (!alphaToggle || !colorPicker) return;
     
     const currentAlpha = parseInt(alphaToggle.dataset.alpha);
     const newAlpha = currentAlpha === 100 ? 0 : 100;
@@ -278,8 +312,10 @@ function toggleAlpha(colorIndex) {
     if (icon) {
         if (newAlpha === 0) {
             icon.className = 'ri-eye-off-line';
+            colorPicker.classList.add('transparent');
         } else {
             icon.className = 'ri-eye-line';
+            colorPicker.classList.remove('transparent');
         }
     }
     
@@ -324,26 +360,18 @@ function updatePresetColors() {
 }
 
 function checkForCustomChanges() {
-    if (!currentPreset) return;
+    if (!currentPreset) {
+        // If no preset is selected, set to custom when user makes changes
+        setToCustomPreset();
+        return;
+    }
     
     const activeColors = getActiveColors();
     const hasChanged = activeColors.length !== presetColors.length || 
                       activeColors.some((color, index) => color !== presetColors[index]);
     
     if (hasChanged) {
-        currentPreset = 'custom';
-        const presetSelect = document.getElementById('color-preset');
-        if (presetSelect) {
-            // Add custom option if it doesn't exist
-            let customOption = presetSelect.querySelector('option[value="custom"]');
-            if (!customOption) {
-                customOption = document.createElement('option');
-                customOption.value = 'custom';
-                customOption.textContent = 'Custom';
-                presetSelect.insertBefore(customOption, presetSelect.children[1]);
-            }
-            presetSelect.value = 'custom';
-        }
+        setToCustomPreset();
     }
 }
 
@@ -352,7 +380,6 @@ function resetToNoPreset() {
     presetColors = [];
     const presetSelect = document.getElementById('color-preset');
     if (presetSelect) {
-        // Remove custom option if it exists
         const customOption = presetSelect.querySelector('option[value="custom"]');
         if (customOption) {
             customOption.remove();
@@ -361,8 +388,35 @@ function resetToNoPreset() {
     }
 }
 
+function setToCustomPreset() {
+    currentPreset = 'custom';
+    const presetSelect = document.getElementById('color-preset');
+    if (presetSelect) {
+        let customOption = presetSelect.querySelector('option[value="custom"]');
+        if (!customOption) {
+            customOption = document.createElement('option');
+            customOption.value = 'custom';
+            customOption.textContent = 'Custom';
+            presetSelect.appendChild(customOption);
+        }
+        presetSelect.value = 'custom';
+    }
+}
+
 function initializeColors() {
-    updateColorControlsVisibility(2);
+    updateColorControlsVisibility(4);
+    
+    // Pick a random preset
+    const presetNames = Object.keys(COLOR_PRESETS);
+    const randomPresetName = presetNames[Math.floor(Math.random() * presetNames.length)];
+    const randomPresetColors = COLOR_PRESETS[randomPresetName];
+    
+    const initialColors = randomPresetColors.slice(0, 4);
+    updateColorPickers(initialColors);
+    
+    // Reset dropdown to show "Choose preset..." instead of any specific preset
+    resetToNoPreset();
+    
     updateAddButtonState();
 }
 
@@ -425,18 +479,30 @@ function setupDropdownNavigation() {
 function navigateDropdown(dropdown, direction) {
     const options = Array.from(dropdown.options);
     const currentIndex = dropdown.selectedIndex;
-    let newIndex;
+    let newIndex = currentIndex;
     
+    // Find next/prev non-disabled option
     if (direction === 'prev') {
-        newIndex = currentIndex > 0 ? currentIndex - 1 : options.length - 1;
+        for (let i = 1; i <= options.length; i++) {
+            const testIndex = (currentIndex - i + options.length) % options.length;
+            if (!options[testIndex].disabled) {
+                newIndex = testIndex;
+                break;
+            }
+        }
     } else if (direction === 'next') {
-        newIndex = currentIndex < options.length - 1 ? currentIndex + 1 : 0;
+        for (let i = 1; i <= options.length; i++) {
+            const testIndex = (currentIndex + i) % options.length;
+            if (!options[testIndex].disabled) {
+                newIndex = testIndex;
+                break;
+            }
+        }
     }
     
-    if (newIndex !== undefined && newIndex !== currentIndex) {
+    if (newIndex !== currentIndex) {
         dropdown.selectedIndex = newIndex;
         
-        // Trigger change event
         const changeEvent = new Event('change', { bubbles: true });
         dropdown.dispatchEvent(changeEvent);
     }
@@ -446,7 +512,6 @@ function addColor() {
     const currentCount = getCurrentColorCount();
     if (currentCount >= 6) return;
     
-    // Get the last visible color
     const lastColorPicker = document.getElementById(`color-${currentCount - 1}`);
     let newColor = '#ff6b6b'; // fallback
     
@@ -454,21 +519,20 @@ function addColor() {
         newColor = generateDarkerColor(lastColorPicker.value);
     }
     
-    // Show the next color item and set its value
     const nextColorPicker = document.getElementById(`color-${currentCount}`);
     const nextAlphaToggle = document.getElementById(`alpha-toggle-${currentCount}`);
     const nextColorItem = nextColorPicker?.closest('.color-item');
     
     if (nextColorItem && nextColorPicker && nextAlphaToggle) {
-        nextColorItem.style.display = 'grid';
+        nextColorItem.style.display = 'flex';
         nextColorPicker.value = newColor;
-        nextAlphaToggle.dataset.alpha = '100'; // Default to fully opaque
+        nextAlphaToggle.dataset.alpha = '100';
         
-        // Ensure the icon is set to visible state
         const icon = nextAlphaToggle.querySelector('i');
         if (icon) {
             icon.className = 'ri-eye-line';
         }
+        nextColorPicker.classList.remove('transparent');
         
         updateColorLabels();
         updateAddButtonState();
@@ -479,25 +543,21 @@ function addColor() {
 }
 
 function generateDarkerColor(hexColor) {
-    // Convert hex to RGB
     const rgb = hexToRgb(hexColor);
     if (!rgb) return hexColor;
     
-    // Make it darker by reducing each component by 20-40%
-    const factor = 0.7; // Make it 30% darker
+    const factor = 0.7;
     const newR = Math.round(rgb.r * factor);
     const newG = Math.round(rgb.g * factor);
     const newB = Math.round(rgb.b * factor);
     
-    // Convert back to hex
     return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
 }
 
 function removeColor(colorIndex) {
     const currentCount = getCurrentColorCount();
-    if (currentCount <= 2) return; // Don't allow removing if only 2 colors left
+    if (currentCount <= 2) return;
     
-    // Get all current colors
     const colors = [];
     for (let i = 0; i < currentCount; i++) {
         if (i !== colorIndex) {
@@ -508,7 +568,6 @@ function removeColor(colorIndex) {
         }
     }
     
-    // Hide the last color item
     const lastColorItem = document.querySelector(`.color-item[data-color-index="${currentCount - 1}"]`);
     if (lastColorItem) {
         lastColorItem.style.display = 'none';
@@ -639,23 +698,17 @@ function handleDrop(e) {
     
     // Adjust drop index based on which side of the item we're dropping on
     if (mouseX > itemCenterX && draggedIndex < dropIndex) {
-        // Dropping on the right side when dragging left to right
         // Keep the original drop index (insert after the target)
     } else if (mouseX < itemCenterX && draggedIndex > dropIndex) {
-        // Dropping on the left side when dragging right to left  
         // Keep the original drop index (insert before the target)
     } else if (mouseX > itemCenterX && draggedIndex > dropIndex) {
-        // Dropping on the right side when dragging right to left
         finalDropIndex = dropIndex + 1;
     } else if (mouseX < itemCenterX && draggedIndex < dropIndex) {
-        // Dropping on the left side when dragging left to right
         finalDropIndex = dropIndex - 1;
     }
     
-    // Reorder the colors
     reorderColors(draggedIndex, finalDropIndex);
     
-    // Clean up visual states
     document.querySelectorAll('.color-item').forEach(item => {
         item.classList.remove('drag-over-left', 'drag-over-right');
     });
@@ -703,7 +756,9 @@ function reorderColors(fromIndex, toIndex) {
     // Only reorder within visible colors
     if (fromIndex >= currentCount || toIndex >= currentCount) return;
     
-    // Get all current color values
+    // No need to reorder if dropping in the same position
+    if (fromIndex === toIndex) return;
+    
     const colors = [];
     for (let i = 0; i < currentCount; i++) {
         const colorPicker = document.getElementById(`color-${i}`);
@@ -712,11 +767,9 @@ function reorderColors(fromIndex, toIndex) {
         }
     }
     
-    // Reorder the array
     const [movedColor] = colors.splice(fromIndex, 1);
     colors.splice(toIndex, 0, movedColor);
     
-    // Update the color pickers with new order
     colors.forEach((color, index) => {
         const colorPicker = document.getElementById(`color-${index}`);
         if (colorPicker) {
@@ -724,7 +777,6 @@ function reorderColors(fromIndex, toIndex) {
         }
     });
     
-    // Update labels to reflect new order
     updateColorLabels();
     
     // Invalidate cache and regenerate
@@ -749,9 +801,12 @@ function debouncedGenerateGradient() {
         clearTimeout(generationTimeout);
     }
     
+    // Use requestAnimationFrame for better performance and frame alignment
     generationTimeout = setTimeout(() => {
-        generateGradientOptimized();
-    }, 16); // ~60fps
+        requestAnimationFrame(() => {
+            generateGradientOptimized();
+        });
+    }, 8); // Reduced debounce time for more responsive UI
 }
 
 function generateGradientImmediate() {
@@ -836,7 +891,7 @@ async function generateGradientOptimized() {
 }
 
 function updateResolutionStatus(message, isLoading = false) {
-    const statusElement = document.getElementById('resolution-status');
+    const statusElement = domCache.get('resolution-status');
     if (statusElement) {
         statusElement.textContent = message;
         statusElement.style.color = isLoading ? '#ffa500' : '#888';
@@ -844,21 +899,6 @@ function updateResolutionStatus(message, isLoading = false) {
     }
 }
 
-function updateGradientAngleVisibility() {
-    const blendModeSelect = document.getElementById('blend-mode');
-    const gradientAngleControl = document.getElementById('gradient-angle-control');
-    
-    if (blendModeSelect && gradientAngleControl) {
-        const blendMode = blendModeSelect.value;
-        const isSmooth = blendMode === 'smooth';
-        
-        if (isSmooth) {
-            gradientAngleControl.classList.remove('hidden');
-        } else {
-            gradientAngleControl.classList.add('hidden');
-        }
-    }
-}
 
 function collectParameters() {
     const colorParams = getRgbColors();
@@ -871,7 +911,6 @@ function collectParameters() {
         flow_intensity: parseFloat(document.getElementById('flow-intensity')?.value || '0.3'),
         organic_distortion: parseFloat(document.getElementById('organic-distortion')?.value || '0.2'),
         color_variance: parseFloat(document.getElementById('color-variance')?.value || '0.1'),
-        gradient_angle: parseFloat(document.getElementById('gradient-angle')?.value || '45'),
         center_bias: parseFloat(document.getElementById('center-bias')?.value || '0.5'),
         offset_x: canvasOffset.x,
         offset_y: canvasOffset.y,
@@ -915,16 +954,11 @@ function updateUIFromParams(params) {
         document.getElementById('color-variance').value = params.color_variance;
         document.getElementById('color-variance-value').textContent = params.color_variance;
     }
-    if (params.gradient_angle !== undefined) {
-        document.getElementById('gradient-angle').value = params.gradient_angle;
-        document.getElementById('gradient-angle-value').textContent = params.gradient_angle;
-    }
     if (params.center_bias !== undefined) {
         document.getElementById('center-bias').value = params.center_bias;
         document.getElementById('center-bias-value').textContent = params.center_bias;
     }
     
-    updateGradientAngleVisibility();
 }
 
 async function exportImage() {
@@ -947,19 +981,20 @@ async function exportImage() {
     }
 }
 
+// Color presets shared between functions
+const COLOR_PRESETS = {
+    sunset: ['#2d0b00', '#ffb347', '#ff5e13', '#ffd580', '#6e00ff', '#00ffd0'],
+    ocean: ['#0abde3', '#006ba6', '#0c2461', '#1e3799', '#74b9ff', '#00cec9'],
+    forest: ['#00d2d3', '#54a0ff', '#5f27cd', '#00b894', '#55a3ff', '#26de81'],
+    cosmic: ['#6c5ce7', '#fd79a8', '#a55eea', '#fff700', '#00fff7', '#e84393'],
+    fire: ['#ff3838', '#ff9500', '#ffdd59', '#ff6348', '#e17055', '#d63031'],
+    ice: ['#7bed9f', '#70a1ff', '#5352ed', '#40407a', '#74b9ff', '#a29bfe'],
+    earth: ['#2c2c54', '#40407a', '#706fd3', '#f7f1e3', '#6c5ce7', '#fdcb6e'],
+    neon: ['#ff006e', '#8338ec', '#3a86ff', '#06ffa5', '#fd79a8', '#fdcb6e']
+};
+
 function applyColorPreset(colorPresetName) {
-    const presets = {
-        sunset: ['#ff6b6b', '#ff8e53', '#ff6b9d', '#c44569', '#fd79a8', '#e17055'],
-        ocean: ['#0abde3', '#006ba6', '#0c2461', '#1e3799', '#74b9ff', '#00cec9'],
-        forest: ['#00d2d3', '#54a0ff', '#5f27cd', '#00b894', '#55a3ff', '#26de81'],
-        cosmic: ['#a55eea', '#26de81', '#fd79a8', '#fdcb6e', '#6c5ce7', '#e84393'],
-        fire: ['#ff3838', '#ff9500', '#ffdd59', '#ff6348', '#e17055', '#d63031'],
-        ice: ['#7bed9f', '#70a1ff', '#5352ed', '#40407a', '#74b9ff', '#a29bfe'],
-        earth: ['#2c2c54', '#40407a', '#706fd3', '#f7f1e3', '#6c5ce7', '#fdcb6e'],
-        neon: ['#ff006e', '#8338ec', '#3a86ff', '#06ffa5', '#fd79a8', '#fdcb6e']
-    };
-    
-    const colors = presets[colorPresetName];
+    const colors = COLOR_PRESETS[colorPresetName];
     if (colors) {
         updateColorPickers(colors);
         generateGradientImmediate();
@@ -980,7 +1015,7 @@ function randomizeColors(seed) {
     }
     
     updateColorPickers(colors);
-    resetToNoPreset(); // Reset preset when randomizing
+    setToCustomPreset();
     generateGradientImmediate();
     console.log(`Randomized colors with seed: ${seed}`);
 }
@@ -993,6 +1028,7 @@ function updateColorPickers(colors) {
             if (typeof color === 'string') {
                 // Legacy hex color format
                 colorPicker.value = color;
+                colorPicker.classList.remove('transparent');
                 if (alphaToggle) {
                     alphaToggle.dataset.alpha = '100';
                     const icon = alphaToggle.querySelector('i');
@@ -1007,6 +1043,13 @@ function updateColorPickers(colors) {
                     const icon = alphaToggle.querySelector('i');
                     if (icon) {
                         icon.className = alphaValue === 0 ? 'ri-eye-off-line' : 'ri-eye-line';
+                    }
+                    
+                    // Update transparent class based on alpha value
+                    if (alphaValue === 0) {
+                        colorPicker.classList.add('transparent');
+                    } else {
+                        colorPicker.classList.remove('transparent');
                     }
                 }
             }
@@ -1105,52 +1148,13 @@ function applyHistoryState(params) {
 }
 
 function updateHistoryButtons() {
-    const undoBtn = document.getElementById('undo');
-    const redoBtn = document.getElementById('redo');
+    const undoBtn = domCache.get('undo');
+    const redoBtn = domCache.get('redo');
     
     if (undoBtn) undoBtn.disabled = historyIndex <= 0;
     if (redoBtn) redoBtn.disabled = historyIndex >= history.length - 1;
 }
 
-function randomizeEverything() {
-    if (!gradientGenerator) return;
-    
-    try {
-        const randomSeed = Math.floor(Math.random() * 10000);
-        
-        gradientGenerator.randomize_colors(randomSeed);
-        
-        const randomParams = {
-            seed: randomSeed,
-            blend_mode: ['smooth', 'radial', 'angular', 'diamond'][Math.floor(Math.random() * 4)],
-            color_spread: Math.round((0.3 + Math.random() * 1.4) * 10) / 10,
-            flow_intensity: Math.round(Math.random() * 0.8 * 20) / 20,
-            organic_distortion: Math.round(Math.random() * 0.6 * 20) / 20,
-            color_variance: Math.round(Math.random() * 0.2 * 100) / 100,
-            gradient_angle: Math.round(Math.random() * 360 / 5) * 5,
-            center_bias: Math.round(Math.random() * 100) / 100
-        };
-        
-        updateUIFromParams(randomParams);
-        
-        Object.keys(randomParams).forEach(key => {
-            const element = document.getElementById(key.replace('_', '-'));
-            if (element) {
-                element.value = randomParams[key];
-                const valueDisplay = document.getElementById(`${key.replace('_', '-')}-value`);
-                if (valueDisplay) {
-                    valueDisplay.textContent = randomParams[key];
-                }
-            }
-        });
-        
-        generateGradientImmediate();
-        
-        console.log(`Randomized everything with seed: ${randomSeed}`);
-    } catch (error) {
-        console.error('Error randomizing:', error);
-    }
-}
 
 function setupCanvasInteraction() {
     if (!canvas) return;
@@ -1264,8 +1268,8 @@ function getTouchPos(touch) {
 }
 
 function updateCompositionDisplay() {
-    const offsetDisplay = document.getElementById('composition-offset');
-    const zoomDisplay = document.getElementById('composition-zoom');
+    const offsetDisplay = domCache.get('composition-offset');
+    const zoomDisplay = domCache.get('composition-zoom');
     
     if (offsetDisplay) {
         offsetDisplay.textContent = `Offset: ${Math.round(canvasOffset.x)}, ${Math.round(canvasOffset.y)}`;
@@ -1324,18 +1328,20 @@ function applyCanvasRotation() {
 }
 
 
-function advancedRandomize(creativityLevel) {
+function randomizeBlending() {
     if (!gradientGenerator) return;
     
     try {
-        console.log(`Advanced randomization with creativity level ${creativityLevel}`);
-        updateResolutionStatus('Advanced randomizing...', true);
+        console.log('Blending randomization');
+        updateResolutionStatus('Randomizing blending...', true);
         
         const randomSeed = Math.floor(Math.random() * 10000);
         const random = new SeededRandom(randomSeed);
-        const creativity = Math.max(0, Math.min(1, creativityLevel));
+        const creativity = 0.8; // Fixed creativity level
         
-        // Randomize parameters
+        document.getElementById('seed').value = randomSeed;
+        document.getElementById('seed-value').textContent = randomSeed;
+        
         document.getElementById('flow-intensity').value = random.next() * creativity;
         document.getElementById('flow-intensity-value').textContent = (random.next() * creativity).toFixed(2);
         
@@ -1349,20 +1355,6 @@ function advancedRandomize(creativityLevel) {
         document.getElementById('color-spread').value = colorSpread;
         document.getElementById('color-spread-value').textContent = colorSpread.toFixed(1);
         
-        // Randomize colors
-        const colorCount = getCurrentColorCount();
-        const colors = [];
-        
-        for (let i = 0; i < colorCount; i++) {
-            const hue = random.next() * 360;
-            const saturation = 40 + random.next() * 60 * creativity;
-            const lightness = i % 2 === 0 ? 20 + random.next() * 50 : 50 + random.next() * 50;
-            colors.push(hslToHex(hue, saturation, lightness));
-        }
-        
-        updateColorPickers(colors);
-        
-        // Randomize blend mode
         const blendModes = ['smooth', 'radial', 'angular', 'diamond', 'vortex'];
         const modeIndex = Math.floor(random.next() * blendModes.length);
         document.getElementById('blend-mode').value = blendModes[modeIndex];
@@ -1370,10 +1362,11 @@ function advancedRandomize(creativityLevel) {
         generateGradientImmediate();
         
     } catch (error) {
-        console.error('Error with advanced randomization:', error);
-        updateResolutionStatus('Advanced randomization failed', false);
+        console.error('Error with blending randomization:', error);
+        updateResolutionStatus('Blending randomization failed', false);
     }
 }
+
 
 function handleAspectRatioChange() {
     const aspectRatio = document.getElementById('aspect-ratio').value;
@@ -1416,7 +1409,7 @@ function handleAspectRatioChange() {
                 width = Math.round(baseSize * 2 / 3);
                 height = baseSize;
                 break;
-            default: // 1:1
+            default:
                 width = baseSize;
                 height = baseSize;
                 break;
@@ -1424,8 +1417,6 @@ function handleAspectRatioChange() {
         
         document.getElementById('width').value = width;
         document.getElementById('height').value = height;
-        document.getElementById('width-value').textContent = width;
-        document.getElementById('height-value').textContent = height;
         
         applyDimensionsInternal(width, height);
     }

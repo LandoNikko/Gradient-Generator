@@ -14,7 +14,6 @@ pub struct GradientParams {
     pub flow_intensity: f64,
     pub organic_distortion: f64,
     pub color_variance: f64,
-    pub gradient_angle: f64,
     pub center_bias: f64,
     pub offset_x: f64,
     pub offset_y: f64,
@@ -40,7 +39,6 @@ impl Default for GradientParams {
             flow_intensity: 0.3,
             organic_distortion: 0.2,
             color_variance: 0.1,
-            gradient_angle: 45.0,
             center_bias: 0.5,
             offset_x: 0.0,
             offset_y: 0.0,
@@ -223,9 +221,13 @@ impl GradientGenerator {
     #[wasm_bindgen]
     pub fn generate_gradient_data(&mut self, width: u32, height: u32) -> Vec<u8> {
         let capacity = (width * height * 4) as usize;
-        let mut data = vec![0u8; capacity];
         
-        if width * height > 1024 * 1024 {
+        // Pre-allocate with exact capacity to avoid reallocations
+        let mut data = Vec::with_capacity(capacity);
+        unsafe { data.set_len(capacity); }
+        
+        // Use parallel processing for larger images, SIMD for smaller ones
+        if width * height > 512 * 512 {
             self.generate_gradient_parallel(&mut data, width, height)
         } else {
             self.generate_gradient_simd(&mut data, width, height)
@@ -241,9 +243,8 @@ impl GradientGenerator {
         let inv_height = 1.0 / height_f;
         
         let seed_f = self.params.seed as f64;
-        let angle_rad = self.params.gradient_angle * self.cached_constants.pi_over_180;
-        let cos_angle = angle_rad.cos();
-        let sin_angle = angle_rad.sin();
+        let cos_angle = 1.0;
+        let sin_angle = 0.0;
         
         let organic_mult = self.params.organic_distortion;
         let flow_mult = self.params.flow_intensity * 0.5;
@@ -296,9 +297,8 @@ impl GradientGenerator {
         let inv_height = 1.0 / height_f;
         
         let seed_f = self.params.seed as f64;
-        let angle_rad = self.params.gradient_angle * self.cached_constants.pi_over_180;
-        let cos_angle = angle_rad.cos();
-        let sin_angle = angle_rad.sin();
+        let cos_angle = 1.0;
+        let sin_angle = 0.0;
         
         let organic_mult = self.params.organic_distortion;
         let flow_mult = self.params.flow_intensity * 0.5;
@@ -392,8 +392,8 @@ impl GradientGenerator {
         let multipliers = &self.cached_constants.organic_multipliers;
         let flow_mults = &self.cached_constants.flow_multipliers;
         
-        let seed_01 = seed * flow_mults[2]; // 0.1
-        let seed_02 = seed * flow_mults[3]; // 0.2
+        let seed_01 = seed * flow_mults[2];
+        let seed_02 = seed * flow_mults[3];
         let seed_03 = seed * 0.3;
         let seed_04 = seed * 0.4;
         let seed_05 = seed * 0.5;
@@ -401,12 +401,12 @@ impl GradientGenerator {
         let seed_07 = seed * 0.7;
         let seed_08 = seed * 0.8;
         
-        let x3 = x * multipliers[0];    // 3.0
-        let y25 = y * multipliers[1];   // 2.5
-        let x18 = x * multipliers[2];   // 1.8
-        let y42 = y * multipliers[3];   // 4.2
-        let x51 = x * multipliers[4];   // 5.1
-        let y13 = y * multipliers[5];   // 1.3
+        let x3 = x * multipliers[0];
+        let y25 = y * multipliers[1];
+        let x18 = x * multipliers[2];
+        let y42 = y * multipliers[3];
+        let x51 = x * multipliers[4];
+        let y13 = y * multipliers[5];
         
         let distortion1 = self.ultra_fast_sin(x3 + seed_01) * self.ultra_fast_cos(y25 + seed_02);
         let distortion2 = self.ultra_fast_cos(x18 + seed_03) * self.ultra_fast_sin(y42 + seed_04);
@@ -414,8 +414,8 @@ impl GradientGenerator {
         
         let organic_offset = (distortion1 * 0.5 + distortion2 * 0.3 + distortion3 * 0.2) * organic_mult;
         
-        let x2 = x * flow_mults[0];     // 2.0
-        let y2 = y * flow_mults[1];     // 2.0
+        let x2 = x * flow_mults[0];
+        let y2 = y * flow_mults[1];
         let flow_x = self.ultra_fast_sin(x2 + seed_07) * flow_mult;
         let flow_y = self.ultra_fast_cos(y2 + seed_08) * flow_mult;
         
