@@ -19,6 +19,23 @@ let isApplyingHistory = false;
 let currentWidth = 2000;
 let currentHeight = 2000;
 
+// Performance optimization: Use lower resolution for real-time preview
+let previewWidth = 800;
+let previewHeight = 800;
+
+function updatePreviewResolution() {
+    const aspectRatio = currentWidth / currentHeight;
+    const maxPreviewSize = 800;
+    
+    if (aspectRatio >= 1) {
+        previewWidth = maxPreviewSize;
+        previewHeight = Math.round(maxPreviewSize / aspectRatio);
+    } else {
+        previewHeight = maxPreviewSize;
+        previewWidth = Math.round(maxPreviewSize * aspectRatio);
+    }
+}
+
 let canvasOffset = { x: 0, y: 0 };
 let canvasZoom = 1.0;
 let canvasRotation = 0;
@@ -50,7 +67,6 @@ const domCache = {
 
 async function init() {
     try {
-        console.log('Initializing Gradient Generator...');
         
         wasmModule = await import('./pkg/gradient_noise_wasm.js');
         await wasmModule.default();
@@ -72,11 +88,11 @@ async function init() {
         setupEventListeners();
         handleAspectRatioChange();
         
+        updatePreviewResolution();
+        
         window.addEventListener('resize', () => {
             updateBackgroundCanvas();
         });
-        
-        console.log('Gradient Generator initialized successfully');
         
     } catch (error) {
         console.error('Initialization failed:', error);
@@ -123,7 +139,6 @@ function setupResponsiveCanvas() {
         canvas.style.width = `${Math.round(displayWidth)}px`;
         canvas.style.height = `${Math.round(displayHeight)}px`;
         
-        console.log(`Canvas resized to ${Math.round(displayWidth)}x${Math.round(displayHeight)}px display (${canvas.width}x${canvas.height}px internal)`);
     }
     
     resizeCanvas();
@@ -576,7 +591,6 @@ function removeColor(colorIndex) {
         lastColorItem.style.display = 'none';
     }
     
-    // Redistribute remaining colors
     colors.forEach((color, index) => {
         const colorPicker = document.getElementById(`color-${index}`);
         if (colorPicker) {
@@ -652,7 +666,6 @@ function handleDragOver(e) {
 }
 
 function updateDropIndicator(e, colorItem) {
-    // Remove existing indicators
     document.querySelectorAll('.color-item').forEach(item => {
         item.classList.remove('drag-over-left', 'drag-over-right');
     });
@@ -756,10 +769,8 @@ function handleTrashDrop(e) {
 function reorderColors(fromIndex, toIndex) {
     const currentCount = getCurrentColorCount();
     
-    // Only reorder within visible colors
     if (fromIndex >= currentCount || toIndex >= currentCount) return;
     
-    // No need to reorder if dropping in the same position
     if (fromIndex === toIndex) return;
     
     const colors = [];
@@ -816,7 +827,6 @@ function generateGradientImmediate() {
     if (generationTimeout) {
         clearTimeout(generationTimeout);
     }
-    console.log(`Generating gradient immediately with dimensions: ${currentWidth}x${currentHeight}`);
     generateGradientOptimized();
 }
 
@@ -824,7 +834,6 @@ function generateGradientForced() {
     if (generationTimeout) {
         clearTimeout(generationTimeout);
     }
-    console.log(`Force generating gradient with dimensions: ${currentWidth}x${currentHeight}`);
     
     lastParams = null;
     generateGradientOptimized();
@@ -846,11 +855,9 @@ async function generateGradientOptimized() {
         const paramsString = JSON.stringify(params);
         
         if (paramsString === lastParams) {
-            console.log('Skipping generation - parameters unchanged');
             return;
         }
         
-        console.log('Parameters changed, proceeding with generation');
         
         if (!isApplyingHistory) {
             saveToHistory(params);
@@ -859,12 +866,17 @@ async function generateGradientOptimized() {
         
         gradientGenerator.update_params(paramsString);
         
-        const width = currentWidth;
-        const height = currentHeight;
+        const width = previewWidth;
+        const height = previewHeight;
         
         const startTime = performance.now();
         const gradientData = gradientGenerator.generate_gradient_data(width, height);
         const wasmTime = performance.now();
+        
+        if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+        }
         
         const imageData = ctx.createImageData(width, height);
         imageData.data.set(gradientData);
@@ -874,7 +886,7 @@ async function generateGradientOptimized() {
         
         const wasmGenTime = Math.round(wasmTime - startTime);
         const totalTime = Math.round(endTime - startTime);
-        updateResolutionStatus(`Generated in ${wasmGenTime}ms (${totalTime}ms total)`);
+        updateResolutionStatus(`Preview ${width}×${height} • Export ${currentWidth}×${currentHeight} • ${wasmGenTime}ms`);
         
         updateCompositionDisplay();
         updateBackgroundCanvas();
@@ -968,16 +980,30 @@ async function exportImage() {
     if (!canvas) return;
     
     try {
-        console.log('Exporting gradient...');
+        
+        
+        const params = collectParameters();
+        const paramsString = JSON.stringify(params);
+        gradientGenerator.update_params(paramsString);
+        
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = currentWidth;
+        exportCanvas.height = currentHeight;
+        const exportCtx = exportCanvas.getContext('2d');
+        
+        const gradientData = gradientGenerator.generate_gradient_data(currentWidth, currentHeight);
+        const imageData = exportCtx.createImageData(currentWidth, currentHeight);
+        imageData.data.set(gradientData);
+        exportCtx.putImageData(imageData, 0, 0);
         
         const link = document.createElement('a');
-        link.download = `gradient-${canvas.width}x${canvas.height}-${Date.now()}.png`;
-        link.href = canvas.toDataURL();
+        link.download = `gradient-${currentWidth}x${currentHeight}-${Date.now()}.png`;
+        link.href = exportCanvas.toDataURL();
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         
-        console.log(`Gradient exported successfully at ${canvas.width}x${canvas.height}px`);
+        
     } catch (error) {
         console.error('Export failed:', error);
         showError('Failed to export image: ' + error.message);
@@ -1001,7 +1027,6 @@ function applyColorPreset(colorPresetName) {
     if (colors) {
         updateColorPickers(colors);
         generateGradientImmediate();
-        console.log(`Applied color preset: ${colorPresetName}`);
     }
 }
 
@@ -1020,7 +1045,6 @@ function randomizeColors(seed) {
     updateColorPickers(colors);
     setToCustomPreset();
     generateGradientImmediate();
-    console.log(`Randomized colors with seed: ${seed}`);
 }
 
 function updateColorPickers(colors) {
@@ -1048,7 +1072,6 @@ function updateColorPickers(colors) {
                         icon.className = alphaValue === 0 ? 'ri-eye-off-line' : 'ri-eye-line';
                     }
                     
-                    // Update transparent class based on alpha value
                     if (alphaValue === 0) {
                         colorPicker.classList.add('transparent');
                     } else {
@@ -1105,7 +1128,6 @@ function undo() {
         historyIndex--;
         const params = history[historyIndex];
         applyHistoryState(params);
-        console.log(`↶ Undo to state ${historyIndex + 1}`);
     }
 }
 
@@ -1114,7 +1136,6 @@ function redo() {
         historyIndex++;
         const params = history[historyIndex];
         applyHistoryState(params);
-        console.log(`↷ Redo to state ${historyIndex + 1}`);
     }
 }
 
@@ -1175,7 +1196,6 @@ function setupCanvasInteraction() {
     
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     
-    console.log('Canvas interaction setup complete');
 }
 
 function handleMouseDown(e) {
@@ -1327,7 +1347,6 @@ function resetComposition() {
 
 function applyCanvasRotation() {
     debouncedGenerateGradient();
-    console.log(`Canvas content rotated to ${canvasRotation} degrees`);
 }
 
 
@@ -1335,12 +1354,11 @@ function randomizeBlending() {
     if (!gradientGenerator) return;
     
     try {
-        console.log('Blending randomization');
         updateResolutionStatus('Randomizing blending...', true);
         
         const randomSeed = Math.floor(Math.random() * 10000);
         const random = new SeededRandom(randomSeed);
-        const creativity = 0.8; // Fixed creativity level
+        const creativity = 0.8;
         
         document.getElementById('seed').value = randomSeed;
         document.getElementById('seed-value').textContent = randomSeed;
@@ -1435,10 +1453,11 @@ function applyDimensionsInternal(width, height) {
     currentWidth = width;
     currentHeight = height;
     
+    updatePreviewResolution();
+    
     canvas.width = width;
     canvas.height = height;
     
-    console.log(`Canvas dimensions updated to ${width}x${height}px`);
     
     ctx.clearRect(0, 0, width, height);
     

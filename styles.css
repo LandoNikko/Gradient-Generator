@@ -665,17 +665,6 @@ button:disabled:hover {
     font-style: italic;
 }
 
-/* ===== STATUS INDICATOR ===== */
-.status-indicator {
-    text-align: center;
-    margin-top: 0.5rem;
-}
-
-.status-indicator small {
-    color: #888;
-    font-size: 0.8em;
-    font-style: italic;
-}
 
 /* ===== EXPORT & STATUS GROUP ===== */
 .export-status-group {
