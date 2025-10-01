@@ -220,6 +220,9 @@ function setupEventListeners() {
     document.getElementById('undo')?.addEventListener('click', undo);
     document.getElementById('redo')?.addEventListener('click', redo);
     document.getElementById('reset-composition')?.addEventListener('click', resetComposition);
+    document.getElementById('github-btn')?.addEventListener('click', () => {
+        window.open('https://github.com/LandoNikko/Gradient-Generator', '_blank');
+    });
     document.getElementById('randomize-blending')?.addEventListener('click', () => {
         randomizeBlending();
     });
