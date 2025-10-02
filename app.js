@@ -51,6 +51,8 @@ let presetColors = [];
 
 const domCache = {
     elements: new Map(),
+    colorItems: null,
+    sliders: new Map(),
     get(id) {
         if (!this.elements.has(id)) {
             this.elements.set(id, document.getElementById(id));
@@ -60,10 +62,28 @@ const domCache = {
     getAll(selector) {
         return document.querySelectorAll(selector);
     },
+    getColorItems() {
+        if (!this.colorItems) {
+            this.colorItems = document.querySelectorAll('.color-item');
+        }
+        return this.colorItems;
+    },
+    getColorPicker(index) {
+        const key = `color-picker-${index}`;
+        if (!this.elements.has(key)) {
+            this.elements.set(key, document.getElementById(`color-${index}`));
+        }
+        return this.elements.get(key);
+    },
     clear() {
         this.elements.clear();
+        this.colorItems = null;
+        this.sliders.clear();
     }
 };
+
+const hexToRgbCache = new Map();
+let resizeBackgroundTimeout = null;
 
 async function init() {
     try {
@@ -91,7 +111,10 @@ async function init() {
         updatePreviewResolution();
         
         window.addEventListener('resize', () => {
-            updateBackgroundCanvas();
+            if (resizeBackgroundTimeout) clearTimeout(resizeBackgroundTimeout);
+            resizeBackgroundTimeout = setTimeout(() => {
+                updateBackgroundCanvas();
+            }, 100);
         });
         
     } catch (error) {
@@ -160,7 +183,9 @@ function setupResponsiveCanvas() {
 function setupEventListeners() {
     const sliders = [
         'seed', 'color-spread', 'flow-intensity', 'organic-distortion', 
-        'color-variance', 'center-bias', 'canvas-rotation'
+        'color-variance', 'center-bias', 'canvas-rotation',
+        'levels-shadows', 'levels-midtones', 'levels-highlights',
+        'hue-shift', 'saturation', 'noise-amount', 'noise-scale'
     ];
     
     sliders.forEach(id => {
@@ -210,8 +235,8 @@ function setupEventListeners() {
     }
     
     for (let i = 0; i < 6; i++) {
-        const colorPicker = document.getElementById(`color-${i}`);
-        const alphaToggle = document.getElementById(`alpha-toggle-${i}`);
+        const colorPicker = domCache.getColorPicker(i);
+        const alphaToggle = domCache.get(`alpha-toggle-${i}`);
         
         if (colorPicker) {
             colorPicker.addEventListener('input', () => {
@@ -285,6 +310,7 @@ function updateColorControlsVisibility(colorCount) {
             item.style.display = 'none';
         }
     });
+    domCache.colorItems = null;
 }
 
 function getActiveColors() {
@@ -296,7 +322,7 @@ function getActiveColors() {
     
     const colors = [];
     for (let i = 0; i < colorCount; i++) {
-        const colorPicker = domCache.get(`color-${i}`);
+        const colorPicker = domCache.getColorPicker(i);
         const alphaToggle = domCache.get(`alpha-toggle-${i}`);
         if (colorPicker && alphaToggle) {
             const alphaValue = parseInt(alphaToggle.dataset.alpha) / 100.0;
@@ -318,7 +344,7 @@ function getActiveColors() {
 
 function toggleAlpha(colorIndex) {
     const alphaToggle = domCache.get(`alpha-toggle-${colorIndex}`);
-    const colorPicker = domCache.get(`color-${colorIndex}`);
+    const colorPicker = domCache.getColorPicker(colorIndex);
     if (!alphaToggle || !colorPicker) return;
     
     const currentAlpha = parseInt(alphaToggle.dataset.alpha);
@@ -439,7 +465,7 @@ function initializeColors() {
 }
 
 function getCurrentColorCount() {
-    const colorItems = document.querySelectorAll('.color-item');
+    const colorItems = domCache.getColorItems();
     let count = 0;
     colorItems.forEach(item => {
         if (item.style.display !== 'none') {
@@ -471,7 +497,7 @@ function setupAddColorButton() {
     const randomizeBtn = document.getElementById('randomize-colors');
     if (randomizeBtn) {
         randomizeBtn.addEventListener('click', () => {
-            const randomSeed = Math.floor(Math.random() * 10000);
+            const randomSeed = Math.floor(Math.random() * 1000000);
             randomizeColors(randomSeed);
         });
     }
@@ -530,15 +556,15 @@ function addColor() {
     const currentCount = getCurrentColorCount();
     if (currentCount >= 6) return;
     
-    const lastColorPicker = document.getElementById(`color-${currentCount - 1}`);
-    let newColor = '#ff6b6b'; // fallback
+    const lastColorPicker = domCache.getColorPicker(currentCount - 1);
+    let newColor = '#ff6b6b';
     
     if (lastColorPicker) {
         newColor = generateDarkerColor(lastColorPicker.value);
     }
     
-    const nextColorPicker = document.getElementById(`color-${currentCount}`);
-    const nextAlphaToggle = document.getElementById(`alpha-toggle-${currentCount}`);
+    const nextColorPicker = domCache.getColorPicker(currentCount);
+    const nextAlphaToggle = domCache.get(`alpha-toggle-${currentCount}`);
     const nextColorItem = nextColorPicker?.closest('.color-item');
     
     if (nextColorItem && nextColorPicker && nextAlphaToggle) {
@@ -552,6 +578,7 @@ function addColor() {
         }
         nextColorPicker.classList.remove('transparent');
         
+        domCache.colorItems = null;
         updateColorLabels();
         updateAddButtonState();
         invalidateColorCache();
@@ -576,25 +603,46 @@ function removeColor(colorIndex) {
     const currentCount = getCurrentColorCount();
     if (currentCount <= 2) return;
     
-    const colors = [];
+    const colorsWithAlpha = [];
     for (let i = 0; i < currentCount; i++) {
         if (i !== colorIndex) {
-            const colorPicker = document.getElementById(`color-${i}`);
-            if (colorPicker) {
-                colors.push(colorPicker.value);
+            const colorPicker = domCache.getColorPicker(i);
+            const alphaToggle = domCache.get(`alpha-toggle-${i}`);
+            if (colorPicker && alphaToggle) {
+                colorsWithAlpha.push({
+                    hex: colorPicker.value,
+                    alpha: parseInt(alphaToggle.dataset.alpha) / 100.0
+                });
             }
         }
     }
     
+    // Hide the last color item
     const lastColorItem = document.querySelector(`.color-item[data-color-index="${currentCount - 1}"]`);
     if (lastColorItem) {
         lastColorItem.style.display = 'none';
     }
     
-    colors.forEach((color, index) => {
-        const colorPicker = document.getElementById(`color-${index}`);
-        if (colorPicker) {
-            colorPicker.value = color;
+    domCache.colorItems = null;
+    
+    colorsWithAlpha.forEach((colorData, index) => {
+        const colorPicker = domCache.getColorPicker(index);
+        const alphaToggle = domCache.get(`alpha-toggle-${index}`);
+        if (colorPicker && alphaToggle) {
+            colorPicker.value = colorData.hex;
+            const alphaValue = Math.round(colorData.alpha * 100);
+            alphaToggle.dataset.alpha = alphaValue.toString();
+            
+            const icon = alphaToggle.querySelector('i');
+            if (icon) {
+                icon.className = alphaValue === 0 ? 'ri-eye-off-line' : 'ri-eye-line';
+            }
+            
+            if (alphaValue === 0) {
+                colorPicker.classList.add('transparent');
+            } else {
+                colorPicker.classList.remove('transparent');
+            }
         }
     });
     
@@ -666,7 +714,7 @@ function handleDragOver(e) {
 }
 
 function updateDropIndicator(e, colorItem) {
-    document.querySelectorAll('.color-item').forEach(item => {
+    domCache.getColorItems().forEach(item => {
         item.classList.remove('drag-over-left', 'drag-over-right');
     });
     
@@ -725,7 +773,7 @@ function handleDrop(e) {
     
     reorderColors(draggedIndex, finalDropIndex);
     
-    document.querySelectorAll('.color-item').forEach(item => {
+    domCache.getColorItems().forEach(item => {
         item.classList.remove('drag-over-left', 'drag-over-right');
     });
 }
@@ -735,7 +783,7 @@ function handleDragEnd(e) {
         e.target.classList.remove('dragging');
     }
     
-    document.querySelectorAll('.color-item').forEach(item => {
+    domCache.getColorItems().forEach(item => {
         item.classList.remove('drag-over-left', 'drag-over-right');
     });
     
@@ -775,7 +823,7 @@ function reorderColors(fromIndex, toIndex) {
     
     const colors = [];
     for (let i = 0; i < currentCount; i++) {
-        const colorPicker = document.getElementById(`color-${i}`);
+        const colorPicker = domCache.getColorPicker(i);
         if (colorPicker) {
             colors.push(colorPicker.value);
         }
@@ -785,7 +833,7 @@ function reorderColors(fromIndex, toIndex) {
     colors.splice(toIndex, 0, movedColor);
     
     colors.forEach((color, index) => {
-        const colorPicker = document.getElementById(`color-${index}`);
+        const colorPicker = domCache.getColorPicker(index);
         if (colorPicker) {
             colorPicker.value = color;
         }
@@ -793,14 +841,13 @@ function reorderColors(fromIndex, toIndex) {
     
     updateColorLabels();
     
-    // Invalidate cache and regenerate
     invalidateColorCache();
     checkForCustomChanges();
     debouncedGenerateGradient();
 }
 
 function updateColorLabels() {
-    const colorItems = document.querySelectorAll('.color-item');
+    const colorItems = domCache.getColorItems();
     colorItems.forEach((item, index) => {
         const label = item.querySelector('label');
         if (label) {
@@ -880,6 +927,10 @@ async function generateGradientOptimized() {
         
         const imageData = ctx.createImageData(width, height);
         imageData.data.set(gradientData);
+        
+        // Apply post-processing effects
+        applyPostProcessing(imageData, params);
+        
         ctx.putImageData(imageData, 0, 0);
         
         const endTime = performance.now();
@@ -905,6 +956,370 @@ async function generateGradientOptimized() {
     }
 }
 
+function applyPostProcessing(imageData, params, isExport = false) {
+    const data = imageData.data;
+    const width = imageData.width;
+    const height = imageData.height;
+    
+    const shadowsAdjust = (params.levels_shadows || 0) / 100;
+    const midtonesAdjust = (params.levels_midtones || 0) / 100;
+    const highlightsAdjust = (params.levels_highlights || 0) / 100;
+    const hueShift = (params.hue_shift || 0) / 180 * Math.PI;
+    const saturationAdjust = (params.saturation || 0) / 100;
+    const noiseAmount = (params.noise_amount || 0) / 100;
+    const noiseScale = params.noise_scale || 1.0;
+    
+    if (shadowsAdjust === 0 && midtonesAdjust === 0 && highlightsAdjust === 0 && 
+        hueShift === 0 && saturationAdjust === 0 && noiseAmount === 0) {
+        return;
+    }
+    
+    const hasLevels = shadowsAdjust !== 0 || midtonesAdjust !== 0 || highlightsAdjust !== 0;
+    const hasColor = hueShift !== 0 || saturationAdjust !== 0;
+    const hasNoise = noiseAmount > 0;
+    
+    if (hasLevels && hasColor && hasNoise) {
+        applyFullProcessing(data, width, height, shadowsAdjust, midtonesAdjust, highlightsAdjust, 
+                          hueShift, saturationAdjust, noiseAmount, noiseScale);
+    } else if (hasLevels && hasColor) {
+        applyLevelsAndColor(data, shadowsAdjust, midtonesAdjust, highlightsAdjust, hueShift, saturationAdjust);
+    } else if (hasLevels) {
+        applyLevelsOnly(data, shadowsAdjust, midtonesAdjust, highlightsAdjust);
+    } else if (hasColor) {
+        applyColorOnly(data, hueShift, saturationAdjust);
+    } else if (hasNoise) {
+        applyNoiseOnly(data, width, height, noiseAmount, noiseScale);
+    }
+    
+    if (hasLevels) {
+        const levelsIntensity = Math.abs(shadowsAdjust) + Math.abs(midtonesAdjust) + Math.abs(highlightsAdjust);
+        const threshold = isExport ? 0.1 : 0.3;
+        if (levelsIntensity > threshold) {
+            applyEdgeSmoothing(imageData, levelsIntensity, isExport);
+        }
+    }
+}
+
+function applyLevelsOnly(data, shadowsAdjust, midtonesAdjust, highlightsAdjust) {
+    for (let i = 0; i < data.length; i += 4) {
+        let r = data[i] / 255;
+        let g = data[i + 1] / 255;
+        let b = data[i + 2] / 255;
+        
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+        let adjustment = 0;
+        
+        if (luminance < 0.33) {
+            adjustment = shadowsAdjust * (1 - luminance / 0.33);
+        } else if (luminance < 0.66) {
+            adjustment = midtonesAdjust;
+        } else {
+            adjustment = highlightsAdjust * ((luminance - 0.66) / 0.34);
+        }
+        
+        data[i] = Math.round(Math.max(0, Math.min(1, r + adjustment)) * 255);
+        data[i + 1] = Math.round(Math.max(0, Math.min(1, g + adjustment)) * 255);
+        data[i + 2] = Math.round(Math.max(0, Math.min(1, b + adjustment)) * 255);
+    }
+}
+
+function applyColorOnly(data, hueShift, saturationAdjust) {
+    const hueShiftNorm = hueShift / (2 * Math.PI);
+    
+    for (let i = 0; i < data.length; i += 4) {
+        let r = data[i] / 255;
+        let g = data[i + 1] / 255;
+        let b = data[i + 2] / 255;
+        
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const diff = max - min;
+        const sum = max + min;
+        const l = sum / 2;
+        
+        let h = 0, s = 0;
+        
+        if (diff !== 0) {
+            s = l > 0.5 ? diff / (2 - sum) : diff / sum;
+            
+            if (max === r) h = ((g - b) / diff + (g < b ? 6 : 0)) / 6;
+            else if (max === g) h = ((b - r) / diff + 2) / 6;
+            else h = ((r - g) / diff + 4) / 6;
+        }
+        
+        h = (h + hueShiftNorm) % 1;
+        if (h < 0) h += 1;
+        s = Math.max(0, Math.min(1, s + saturationAdjust));
+        
+        if (s === 0) {
+            r = g = b = l;
+        } else {
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            const p = 2 * l - q;
+            
+            r = hue2rgb(p, q, h + 1/3);
+            g = hue2rgb(p, q, h);
+            b = hue2rgb(p, q, h - 1/3);
+        }
+        
+        data[i] = Math.round(r * 255);
+        data[i + 1] = Math.round(g * 255);
+        data[i + 2] = Math.round(b * 255);
+    }
+}
+
+function applyNoiseOnly(data, width, height, noiseAmount, noiseScale) {
+    for (let i = 0; i < data.length; i += 4) {
+        const x = (i / 4) % width;
+        const y = Math.floor((i / 4) / width);
+        
+        const noise = (Math.sin(x * noiseScale * 0.1) * Math.cos(y * noiseScale * 0.1) + 
+                      Math.sin(x * noiseScale * 0.07) * Math.cos(y * noiseScale * 0.13)) * 0.5;
+        const noiseValue = noise * noiseAmount * 0.1;
+        
+        data[i] = Math.round(Math.max(0, Math.min(1, data[i] / 255 + noiseValue)) * 255);
+        data[i + 1] = Math.round(Math.max(0, Math.min(1, data[i + 1] / 255 + noiseValue)) * 255);
+        data[i + 2] = Math.round(Math.max(0, Math.min(1, data[i + 2] / 255 + noiseValue)) * 255);
+    }
+}
+
+function applyLevelsAndColor(data, shadowsAdjust, midtonesAdjust, highlightsAdjust, hueShift, saturationAdjust) {
+    const hueShiftNorm = hueShift / (2 * Math.PI);
+    
+    for (let i = 0; i < data.length; i += 4) {
+        let r = data[i] / 255;
+        let g = data[i + 1] / 255;
+        let b = data[i + 2] / 255;
+        
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+        let adjustment = 0;
+        
+        if (luminance < 0.33) {
+            adjustment = shadowsAdjust * (1 - luminance / 0.33);
+        } else if (luminance < 0.66) {
+            adjustment = midtonesAdjust;
+        } else {
+            adjustment = highlightsAdjust * ((luminance - 0.66) / 0.34);
+        }
+        
+        r = Math.max(0, Math.min(1, r + adjustment));
+        g = Math.max(0, Math.min(1, g + adjustment));
+        b = Math.max(0, Math.min(1, b + adjustment));
+        
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const diff = max - min;
+        const sum = max + min;
+        const l = sum / 2;
+        
+        let h = 0, s = 0;
+        
+        if (diff !== 0) {
+            s = l > 0.5 ? diff / (2 - sum) : diff / sum;
+            
+            if (max === r) h = ((g - b) / diff + (g < b ? 6 : 0)) / 6;
+            else if (max === g) h = ((b - r) / diff + 2) / 6;
+            else h = ((r - g) / diff + 4) / 6;
+        }
+        
+        h = (h + hueShiftNorm) % 1;
+        if (h < 0) h += 1;
+        s = Math.max(0, Math.min(1, s + saturationAdjust));
+        
+        if (s === 0) {
+            r = g = b = l;
+        } else {
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            const p = 2 * l - q;
+            
+            r = hue2rgb(p, q, h + 1/3);
+            g = hue2rgb(p, q, h);
+            b = hue2rgb(p, q, h - 1/3);
+        }
+        
+        data[i] = Math.round(r * 255);
+        data[i + 1] = Math.round(g * 255);
+        data[i + 2] = Math.round(b * 255);
+    }
+}
+
+function applyFullProcessing(data, width, height, shadowsAdjust, midtonesAdjust, highlightsAdjust, 
+                            hueShift, saturationAdjust, noiseAmount, noiseScale) {
+    const hueShiftNorm = hueShift / (2 * Math.PI);
+    
+    for (let i = 0; i < data.length; i += 4) {
+        let r = data[i] / 255;
+        let g = data[i + 1] / 255;
+        let b = data[i + 2] / 255;
+        
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+        let adjustment = 0;
+        
+        if (luminance < 0.33) {
+            adjustment = shadowsAdjust * (1 - luminance / 0.33);
+        } else if (luminance < 0.66) {
+            adjustment = midtonesAdjust;
+        } else {
+            adjustment = highlightsAdjust * ((luminance - 0.66) / 0.34);
+        }
+        
+        r = Math.max(0, Math.min(1, r + adjustment));
+        g = Math.max(0, Math.min(1, g + adjustment));
+        b = Math.max(0, Math.min(1, b + adjustment));
+        
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const diff = max - min;
+        const sum = max + min;
+        const l = sum / 2;
+        
+        let h = 0, s = 0;
+        
+        if (diff !== 0) {
+            s = l > 0.5 ? diff / (2 - sum) : diff / sum;
+            
+            if (max === r) h = ((g - b) / diff + (g < b ? 6 : 0)) / 6;
+            else if (max === g) h = ((b - r) / diff + 2) / 6;
+            else h = ((r - g) / diff + 4) / 6;
+        }
+        
+        h = (h + hueShiftNorm) % 1;
+        if (h < 0) h += 1;
+        s = Math.max(0, Math.min(1, s + saturationAdjust));
+        
+        if (s === 0) {
+            r = g = b = l;
+        } else {
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            const p = 2 * l - q;
+            
+            r = hue2rgb(p, q, h + 1/3);
+            g = hue2rgb(p, q, h);
+            b = hue2rgb(p, q, h - 1/3);
+        }
+        
+        const x = (i / 4) % width;
+        const y = Math.floor((i / 4) / width);
+        
+        const noise = (Math.sin(x * noiseScale * 0.1) * Math.cos(y * noiseScale * 0.1) + 
+                      Math.sin(x * noiseScale * 0.07) * Math.cos(y * noiseScale * 0.13)) * 0.5;
+        const noiseValue = noise * noiseAmount * 0.1;
+        
+        r = Math.max(0, Math.min(1, r + noiseValue));
+        g = Math.max(0, Math.min(1, g + noiseValue));
+        b = Math.max(0, Math.min(1, b + noiseValue));
+        
+        data[i] = Math.round(r * 255);
+        data[i + 1] = Math.round(g * 255);
+        data[i + 2] = Math.round(b * 255);
+    }
+}
+
+function hue2rgb(p, q, t) {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+}
+
+function applyEdgeSmoothing(imageData, intensity, isExport = false) {
+    const data = imageData.data;
+    const width = imageData.width;
+    const height = imageData.height;
+    
+    const smoothingStrength = isExport 
+        ? Math.min(intensity * 0.8, 1.0)
+        : Math.min(intensity * 0.5, 0.8);
+    
+    const lumR = 0.299 / 255;
+    const lumG = 0.587 / 255;
+    const lumB = 0.114 / 255;
+    
+    const contrastThreshold = isExport ? 0.1 : 0.15;
+    const stride = width * 4;
+    
+    const rowBuffer = new Uint8ClampedArray(stride * 3);
+    
+    for (let y = 0; y < 3 && y < height; y++) {
+        const srcOffset = y * stride;
+        const dstOffset = y * stride;
+        for (let i = 0; i < stride; i++) {
+            rowBuffer[dstOffset + i] = data[srcOffset + i];
+        }
+    }
+    
+    for (let y = 1; y < height - 1; y++) {
+        const currentRow = (y % 3) * stride;
+        const prevRow = ((y - 1) % 3) * stride;
+        const nextRow = ((y + 1) % 3) * stride;
+        
+        if (y + 2 < height) {
+            const loadRow = (y + 2) % 3;
+            const srcOffset = (y + 2) * stride;
+            const dstOffset = loadRow * stride;
+            for (let i = 0; i < stride; i++) {
+                rowBuffer[dstOffset + i] = data[srcOffset + i];
+            }
+        }
+        
+        for (let x = 1; x < width - 1; x++) {
+            const centerIdx = currentRow + x * 4;
+            
+            const centerLum = rowBuffer[centerIdx] * lumR + 
+                            rowBuffer[centerIdx + 1] * lumG + 
+                            rowBuffer[centerIdx + 2] * lumB;
+            
+            let maxContrast = 0;
+            
+            const offsets = [
+                prevRow + (x - 1) * 4, prevRow + x * 4, prevRow + (x + 1) * 4,
+                currentRow + (x - 1) * 4, currentRow + (x + 1) * 4,
+                nextRow + (x - 1) * 4, nextRow + x * 4, nextRow + (x + 1) * 4
+            ];
+            
+            for (let i = 0; i < 8; i++) {
+                const idx = offsets[i];
+                const neighborLum = rowBuffer[idx] * lumR + 
+                                  rowBuffer[idx + 1] * lumG + 
+                                  rowBuffer[idx + 2] * lumB;
+                
+                const contrast = Math.abs(centerLum - neighborLum);
+                if (contrast > maxContrast) maxContrast = contrast;
+            }
+            
+            if (maxContrast > contrastThreshold) {
+                const blendFactor = Math.min((maxContrast * maxContrast) * smoothingStrength * 2, 0.6);
+                
+                let avgR = rowBuffer[centerIdx] * 4;
+                let avgG = rowBuffer[centerIdx + 1] * 4;
+                let avgB = rowBuffer[centerIdx + 2] * 4;
+                
+                const weights = [0.7, 1.0, 0.7, 1.0, 1.0, 0.7, 1.0, 0.7];
+                
+                for (let i = 0; i < 8; i++) {
+                    const idx = offsets[i];
+                    avgR += rowBuffer[idx] * weights[i];
+                    avgG += rowBuffer[idx + 1] * weights[i];
+                    avgB += rowBuffer[idx + 2] * weights[i];
+                }
+                
+                const invTotalWeight = 1 / 10.8;
+                avgR *= invTotalWeight;
+                avgG *= invTotalWeight;
+                avgB *= invTotalWeight;
+                
+                const invBlend = 1 - blendFactor;
+                const dataIdx = y * stride + x * 4;
+                data[dataIdx] = (rowBuffer[centerIdx] * invBlend + avgR * blendFactor) | 0;
+                data[dataIdx + 1] = (rowBuffer[centerIdx + 1] * invBlend + avgG * blendFactor) | 0;
+                data[dataIdx + 2] = (rowBuffer[centerIdx + 2] * invBlend + avgB * blendFactor) | 0;
+            }
+        }
+    }
+}
+
 function updateResolutionStatus(message, isLoading = false) {
     const statusElement = domCache.get('resolution-status');
     if (statusElement) {
@@ -920,29 +1335,39 @@ function collectParameters() {
     const activeColors = getActiveColors();
     
     return {
-        seed: parseInt(document.getElementById('seed')?.value || '42'),
-        blend_mode: document.getElementById('blend-mode')?.value || 'smooth',
-        color_spread: parseFloat(document.getElementById('color-spread')?.value || '0.7'),
-        flow_intensity: parseFloat(document.getElementById('flow-intensity')?.value || '0.3'),
-        organic_distortion: parseFloat(document.getElementById('organic-distortion')?.value || '0.2'),
-        color_variance: parseFloat(document.getElementById('color-variance')?.value || '0.1'),
-        center_bias: parseFloat(document.getElementById('center-bias')?.value || '0.5'),
+        seed: parseInt(domCache.get('seed')?.value || '42'),
+        blend_mode: domCache.get('blend-mode')?.value || 'smooth',
+        color_spread: parseFloat(domCache.get('color-spread')?.value || '0.7'),
+        flow_intensity: parseFloat(domCache.get('flow-intensity')?.value || '0.3'),
+        organic_distortion: parseFloat(domCache.get('organic-distortion')?.value || '0.2'),
+        color_variance: parseFloat(domCache.get('color-variance')?.value || '0.1'),
+        center_bias: parseFloat(domCache.get('center-bias')?.value || '0.5'),
         offset_x: canvasOffset.x,
         offset_y: canvasOffset.y,
         zoom: canvasZoom,
         canvas_rotation: canvasRotation,
         color_count: activeColors.length,
+        levels_shadows: parseFloat(domCache.get('levels-shadows')?.value || '0'),
+        levels_midtones: parseFloat(domCache.get('levels-midtones')?.value || '0'),
+        levels_highlights: parseFloat(domCache.get('levels-highlights')?.value || '0'),
+        hue_shift: parseFloat(domCache.get('hue-shift')?.value || '0'),
+        saturation: parseFloat(domCache.get('saturation')?.value || '0'),
+        noise_amount: parseFloat(domCache.get('noise-amount')?.value || '0'),
+        noise_scale: parseFloat(domCache.get('noise-scale')?.value || '1.0'),
         ...colorParams
     };
 }
 
 function hexToRgb(hex) {
+    if (hexToRgbCache.has(hex)) return hexToRgbCache.get(hex);
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
+    const rgb = result ? {
         r: parseInt(result[1], 16),
         g: parseInt(result[2], 16),
         b: parseInt(result[3], 16)
     } : null;
+    hexToRgbCache.set(hex, rgb);
+    return rgb;
 }
 
 function updateUIFromParams(params) {
@@ -994,6 +1419,10 @@ async function exportImage() {
         const gradientData = gradientGenerator.generate_gradient_data(currentWidth, currentHeight);
         const imageData = exportCtx.createImageData(currentWidth, currentHeight);
         imageData.data.set(gradientData);
+        
+        // Apply post-processing effects for export with higher quality anti-aliasing
+        applyPostProcessing(imageData, params, true);
+        
         exportCtx.putImageData(imageData, 0, 0);
         
         const link = document.createElement('a');
@@ -1049,8 +1478,8 @@ function randomizeColors(seed) {
 
 function updateColorPickers(colors) {
     colors.forEach((color, index) => {
-        const colorPicker = document.getElementById(`color-${index}`);
-        const alphaToggle = document.getElementById(`alpha-toggle-${index}`);
+        const colorPicker = domCache.getColorPicker(index);
+        const alphaToggle = domCache.get(`alpha-toggle-${index}`);
         if (colorPicker) {
             if (typeof color === 'string') {
                 // Legacy hex color format
@@ -1146,16 +1575,47 @@ function applyHistoryState(params) {
         gradientGenerator.update_params(JSON.stringify(params));
         updateUIFromParams(params);
         
+        // Restore color states and visibility
+        if (params.color_count !== undefined) {
+            // Update color visibility based on saved color count
+            updateColorControlsVisibility(params.color_count);
+            
+            // Restore individual color values and alpha states
+            const colors = [];
+            for (let i = 0; i < params.color_count; i++) {
+                const colorKey = `color_${i + 1}`;
+                if (params[colorKey]) {
+                    const [r, g, b, a] = params[colorKey];
+                    const hex = `#${Math.round(r * 255).toString(16).padStart(2, '0')}${Math.round(g * 255).toString(16).padStart(2, '0')}${Math.round(b * 255).toString(16).padStart(2, '0')}`;
+                    colors.push({ hex, alpha: a });
+                }
+            }
+            
+            // Apply the restored colors
+            updateColorPickers(colors);
+            updateAddButtonState();
+            invalidateColorCache();
+        }
+        
         lastParams = JSON.stringify(params);
         
         try {
             isGenerating = true;
             updateResolutionStatus('Applying...', true);
             
-            const width = currentWidth;
-            const height = currentHeight;
+            const width = previewWidth;
+            const height = previewHeight;
             const gradientData = gradientGenerator.generate_gradient_data(width, height);
             const imageData = new ImageData(new Uint8ClampedArray(gradientData), width, height);
+            
+            // Apply post-processing effects
+            applyPostProcessing(imageData, params);
+            
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+            }
+            
             ctx.putImageData(imageData, 0, 0);
             
             updateResolutionStatus('Applied from history');
@@ -1216,6 +1676,7 @@ function handleMouseMove(e) {
     
     lastMousePos = currentPos;
     
+    updateCompositionDisplay();
     debouncedGenerateGradient();
 }
 
@@ -1267,6 +1728,7 @@ function handleTouchMove(e) {
     
     lastMousePos = currentPos;
     
+    updateCompositionDisplay();
     debouncedGenerateGradient();
 }
 
@@ -1356,21 +1818,24 @@ function randomizeBlending() {
     try {
         updateResolutionStatus('Randomizing blending...', true);
         
-        const randomSeed = Math.floor(Math.random() * 10000);
+        const randomSeed = Math.floor(Math.random() * 1000000);
         const random = new SeededRandom(randomSeed);
         const creativity = 0.8;
         
         document.getElementById('seed').value = randomSeed;
         document.getElementById('seed-value').textContent = randomSeed;
         
-        document.getElementById('flow-intensity').value = random.next() * creativity;
-        document.getElementById('flow-intensity-value').textContent = (random.next() * creativity).toFixed(2);
+        const flowValue = random.next() * creativity;
+        document.getElementById('flow-intensity').value = flowValue;
+        document.getElementById('flow-intensity-value').textContent = flowValue.toFixed(2);
         
-        document.getElementById('organic-distortion').value = random.next() * creativity;
-        document.getElementById('organic-distortion-value').textContent = (random.next() * creativity).toFixed(2);
+        const organicValue = random.next() * creativity;
+        document.getElementById('organic-distortion').value = organicValue;
+        document.getElementById('organic-distortion-value').textContent = organicValue.toFixed(2);
         
-        document.getElementById('color-variance').value = random.next() * creativity * 0.3;
-        document.getElementById('color-variance-value').textContent = (random.next() * creativity * 0.3).toFixed(2);
+        const varianceValue = random.next() * creativity * 0.3;
+        document.getElementById('color-variance').value = varianceValue;
+        document.getElementById('color-variance-value').textContent = varianceValue.toFixed(2);
         
         const colorSpread = 0.5 + random.next() * creativity;
         document.getElementById('color-spread').value = colorSpread;

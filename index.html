@@ -8,6 +8,7 @@
     <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
     <link href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <link rel="modulepreload" href="app.js">
     <link rel="preload" href="./pkg/gradient_noise_wasm.js" as="script">
     <link rel="preload" href="./pkg/gradient_noise_wasm_bg.wasm" as="fetch" type="application/wasm" crossorigin>
 </head>
@@ -98,7 +99,7 @@
 
                 <div class="control-item">
                     <label>Seed <span class="value-display" id="seed-value">42</span></label>
-                    <input type="range" class="slider" id="seed" min="0" max="9999" value="42">
+                    <input type="range" class="slider" id="seed" min="0" max="999999" value="42">
                 </div>
 
                 <div class="control-item">
@@ -122,7 +123,7 @@
                 </div>
                 
 
-                <div class="control-item">
+                <div class="control-item center-bias-control">
                     <label>Center Bias <span class="value-display" id="center-bias-value">0.5</span></label>
                     <input type="range" class="slider" id="center-bias" min="0.0" max="1.0" step="0.01" value="0.5">
                 </div>
@@ -234,6 +235,45 @@
                 
                 <div class="trash-bin" id="trash-bin" title="Drag color here to remove">
                     <i class="ri-delete-bin-line"></i>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Post Processing</h3>
+
+                <div class="control-item">
+                    <label>Levels - Shadows <span class="value-display" id="levels-shadows-value">0</span></label>
+                    <input type="range" class="slider" id="levels-shadows" min="-100" max="100" step="1" value="0">
+                </div>
+
+                <div class="control-item">
+                    <label>Levels - Midtones <span class="value-display" id="levels-midtones-value">0</span></label>
+                    <input type="range" class="slider" id="levels-midtones" min="-100" max="100" step="1" value="0">
+                </div>
+
+                <div class="control-item">
+                    <label>Levels - Highlights <span class="value-display" id="levels-highlights-value">0</span></label>
+                    <input type="range" class="slider" id="levels-highlights" min="-100" max="100" step="1" value="0">
+                </div>
+
+                <div class="control-item">
+                    <label>Hue Shift <span class="value-display" id="hue-shift-value">0</span></label>
+                    <input type="range" class="slider" id="hue-shift" min="-180" max="180" step="1" value="0">
+            </div>
+
+                <div class="control-item">
+                    <label>Saturation <span class="value-display" id="saturation-value">0</span></label>
+                    <input type="range" class="slider" id="saturation" min="-100" max="100" step="1" value="0">
+                </div>
+
+                <div class="control-item">
+                    <label>Noise Amount <span class="value-display" id="noise-amount-value">0</span></label>
+                    <input type="range" class="slider" id="noise-amount" min="0" max="100" step="1" value="0">
+                </div>
+
+                <div class="control-item">
+                    <label>Noise Scale <span class="value-display" id="noise-scale-value">1.0</span></label>
+                    <input type="range" class="slider" id="noise-scale" min="0.1" max="5.0" step="0.1" value="1.0">
                 </div>
             </div>
 
