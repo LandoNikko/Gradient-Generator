@@ -2,7 +2,7 @@
 name = "gradient-noise-wasm"
 version = "0.1.0"
 edition = "2021"
-description = "High-performance gradient generator built with Rust and WebAssembly"
+description = "Gradient generator built with Rust and WebAssembly"
 repository = "https://github.com/LandoNikko/Gradient-Generator"
 license = "MIT"
 

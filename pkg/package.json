@@ -1,7 +1,7 @@
 {
   "name": "gradient-noise-wasm",
   "type": "module",
-  "description": "High-performance gradient generator built with Rust and WebAssembly",
+  "description": "Gradient generator built with Rust and WebAssembly",
   "version": "0.1.0",
   "license": "MIT",
   "repository": {

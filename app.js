@@ -48,6 +48,8 @@ let rgbColorCache = null;
 
 let currentPreset = '';
 let presetColors = [];
+let userPresets = {};
+let nextUserPresetNumber = 1;
 
 const domCache = {
     elements: new Map(),
@@ -119,7 +121,6 @@ async function init() {
         
     } catch (error) {
         console.error('Initialization failed:', error);
-        showError('Failed to initialize: ' + error.message);
     }
 }
 
@@ -211,28 +212,21 @@ function setupEventListeners() {
     
     const blendModeSelect = document.getElementById('blend-mode');
     if (blendModeSelect) {
-        blendModeSelect.addEventListener('change', () => {
+        blendModeSelect.addEventListener('change', (e) => {
             debouncedGenerateGradient();
         });
     }
     
-    const aspectRatioSelect = document.getElementById('aspect-ratio');
-    if (aspectRatioSelect) {
-        aspectRatioSelect.addEventListener('change', handleAspectRatioChange);
-    }
+    // Custom aspect ratio dropdown
+    setupCustomAspectRatioDropdown();
+
+    // Custom blend mode dropdown
+    setupCustomBlendModeDropdown();
+
+    // Custom color preset dropdown
+    setupCustomColorPresetDropdown();
     
     document.getElementById('export')?.addEventListener('click', exportImage);
-    
-    const colorPresetSelect = document.getElementById('color-preset');
-    if (colorPresetSelect) {
-        colorPresetSelect.addEventListener('change', (e) => {
-            if (e.target.value) {
-                applyColorPreset(e.target.value);
-                currentPreset = e.target.value;
-                updatePresetColors();
-            }
-        });
-    }
     
     for (let i = 0; i < 6; i++) {
         const colorPicker = domCache.getColorPicker(i);
@@ -260,12 +254,249 @@ function setupEventListeners() {
     document.getElementById('undo')?.addEventListener('click', undo);
     document.getElementById('redo')?.addEventListener('click', redo);
     document.getElementById('reset-composition')?.addEventListener('click', resetComposition);
-    document.getElementById('github-btn')?.addEventListener('click', () => {
-        window.open('https://github.com/LandoNikko/Gradient-Generator', '_blank');
-    });
+    // Info modal functionality
+    const infoBtn = document.getElementById('info-btn');
+    const infoModal = document.getElementById('info-modal');
+    const modalClose = document.getElementById('modal-close');
+
+    if (infoBtn && infoModal) {
+        infoBtn.addEventListener('click', () => {
+            infoModal.style.display = 'flex';
+        });
+
+        modalClose.addEventListener('click', () => {
+            infoModal.style.display = 'none';
+        });
+
+        // Close modal when clicking outside
+        infoModal.addEventListener('click', (e) => {
+            if (e.target === infoModal) {
+                infoModal.style.display = 'none';
+            }
+        });
+
+        // Close modal with Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && infoModal.style.display === 'flex') {
+                infoModal.style.display = 'none';
+            }
+        });
+    }
     document.getElementById('randomize-blending')?.addEventListener('click', () => {
         randomizeBlending();
     });
+
+    // Post-processing toggle (controls both UI visibility and effect application)
+    const postProcessingToggle = document.getElementById('post-processing-toggle');
+    const postProcessingControls = document.getElementById('post-processing-controls');
+
+    if (postProcessingToggle && postProcessingControls) {
+        postProcessingToggle.addEventListener('click', () => {
+            const isVisible = postProcessingControls.style.display !== 'none';
+
+            postProcessingControls.style.display = isVisible ? 'none' : 'block';
+            postProcessingToggle.classList.toggle('active', !isVisible);
+
+            // Update icon
+            const icon = postProcessingToggle.querySelector('i');
+            if (icon) {
+                icon.className = isVisible ? 'ri-toggle-line' : 'ri-toggle-fill';
+            }
+
+            // Re-render to apply/remove post-processing effects
+            debouncedGenerateGradient();
+        });
+    }
+
+    // Post-processing reset button
+    const resetPostProcessingBtn = document.getElementById('reset-post-processing');
+
+    if (resetPostProcessingBtn) {
+        resetPostProcessingBtn.addEventListener('click', () => {
+            // Reset all post-processing sliders to professional defaults
+            const defaults = {
+                'levels-shadows': '0',
+                'levels-midtones': '0',
+                'levels-highlights': '0',
+                'hue-shift': '0',
+                'saturation': '0',
+                'noise-amount': '0',
+                'noise-scale': '1.0'
+            };
+
+            // Update slider values and displays
+            Object.entries(defaults).forEach(([id, value]) => {
+                const slider = document.getElementById(id);
+                const display = document.getElementById(`${id}-value`);
+
+                if (slider) {
+                    slider.value = value;
+                }
+                if (display) {
+                    display.textContent = value;
+                }
+            });
+
+            // Re-render with new values
+            debouncedGenerateGradient();
+        });
+    }
+
+    // Image upload handlers (with drag-and-drop)
+    const uploadContainer = document.querySelector('.upload-container');
+    const uploadBtn = document.getElementById('upload-btn');
+    const imageUpload = document.getElementById('image-upload');
+    const uploadStatus = document.getElementById('upload-status');
+
+
+    // Function to temporarily change upload button icon and text
+    function setUploadButtonIcon(iconClass, duration = 2000, text = null) {
+        const icon = uploadBtn.querySelector('i');
+        if (!icon) return;
+
+        const originalIconClass = icon.className;
+        const originalText = uploadBtn.dataset.originalText || 'Upload Image';
+
+        // Store original text for future reference
+        if (!uploadBtn.dataset.originalText) {
+            uploadBtn.dataset.originalText = originalText;
+        }
+
+        // Update icon
+        icon.className = iconClass;
+
+        // Update text if provided
+        if (text !== null) {
+            const textNode = uploadBtn.lastChild;
+            if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+                textNode.textContent = ' ' + text;
+            }
+        }
+
+        // Restore after duration
+        setTimeout(() => {
+            icon.className = originalIconClass;
+            if (text !== null) {
+                const textNode = uploadBtn.lastChild;
+                if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+                    textNode.textContent = ' ' + originalText;
+                }
+            }
+        }, duration);
+    }
+
+    // Function to apply shake animation to upload button
+    function shakeUploadButton() {
+        uploadBtn.classList.add('shake');
+        setTimeout(() => {
+            uploadBtn.classList.remove('shake');
+        }, 500);
+    }
+
+    // Function to process uploaded file
+    async function processUploadedFile(file) {
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+            shakeUploadButton();
+            setUploadButtonIcon('ri-close-line', 1000, 'Invalid Filetype');
+            return;
+        }
+
+        // Validate file size (max 10MB)
+        if (file.size > 10 * 1024 * 1024) {
+            shakeUploadButton();
+            setUploadButtonIcon('ri-close-line', 1000, 'File Too Large');
+            return;
+        }
+
+        try {
+            setUploadButtonIcon('ri-loader-4-line', 0); // Loading state
+
+            const colors = await extractColorsFromImage(file);
+            const colorObjects = colors.map(hex => ({ hex, alpha: 1.0 }));
+
+            // Save as user preset
+            const userPresetName = `user-preset-${nextUserPresetNumber}`;
+            const userPresetLabel = `User Preset ${nextUserPresetNumber}`;
+            userPresets[userPresetName] = colors.map(hex => ({ hex, alpha: 1.0 }));
+
+            // Add to dropdown
+            addUserPresetToDropdown(userPresetName, userPresetLabel);
+            nextUserPresetNumber++;
+
+            // Apply the colors
+            updateColorPickers(colorObjects);
+            setToUserPreset(userPresetName);
+
+            // Show current color count
+            const colorCount = Math.min(colors.length, 6);
+            updateColorControlsVisibility(colorCount);
+            updateAddButtonState();
+
+            invalidateColorCache();
+            generateGradientImmediate();
+
+            // Show success checkmark
+            setUploadButtonIcon('ri-check-line', 1000, 'Uploaded');
+
+        } catch (error) {
+            console.error('Color extraction failed:', error);
+            setUploadButtonIcon('ri-image-add-line', 1000, 'Analysis Failed');
+        }
+    }
+
+    if (uploadContainer && uploadBtn && imageUpload) {
+        // Click button to open file dialog
+        uploadBtn.addEventListener('click', () => {
+            imageUpload.click();
+        });
+
+        // Handle file selection via click
+        imageUpload.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                await processUploadedFile(file);
+            }
+        });
+
+        // Drag and drop functionality on the container
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadContainer.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadContainer.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadContainer.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) {
+            uploadContainer.classList.add('drag-over');
+        }
+
+        function unhighlight(e) {
+            uploadContainer.classList.remove('drag-over');
+        }
+
+        uploadContainer.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+
+            if (files.length > 0) {
+                const file = files[0];
+                processUploadedFile(file);
+            }
+        }
+    }
     
     updateHistoryButtons();
     setupCanvasInteraction();
@@ -401,12 +632,22 @@ function getRgbColors() {
 function updatePresetColors() {
     const activeColors = getActiveColors();
     presetColors = [...activeColors];
+
+    // Also update user preset if we're currently on one
+    if (currentPreset && currentPreset.startsWith('user-preset-') && userPresets[currentPreset]) {
+        userPresets[currentPreset] = [...activeColors];
+    }
 }
 
 function checkForCustomChanges() {
     if (!currentPreset) {
         // If no preset is selected, set to custom when user makes changes
         setToCustomPreset();
+        return;
+    }
+
+    // Don't check for changes if we're on a user preset (let users modify them)
+    if (currentPreset.startsWith('user-preset-')) {
         return;
     }
     
@@ -432,19 +673,65 @@ function resetToNoPreset() {
     }
 }
 
+function addUserPresetToDropdown(presetName, presetLabel) {
+    const optionsContainer = document.getElementById('color-preset-options');
+    if (optionsContainer) {
+        // Check if this user preset option already exists
+        let userOption = optionsContainer.querySelector(`.custom-dropdown-option[data-value="${presetName}"]`);
+        if (!userOption) {
+            // Create the option element
+            userOption = document.createElement('div');
+            userOption.className = 'custom-dropdown-option';
+            userOption.dataset.value = presetName;
+
+            // Create the left container for text
+            const leftDiv = document.createElement('div');
+            leftDiv.className = 'option-left';
+
+            // Create the span for the label
+            const labelSpan = document.createElement('span');
+            labelSpan.textContent = presetLabel;
+            leftDiv.appendChild(labelSpan);
+
+            userOption.appendChild(leftDiv);
+            optionsContainer.appendChild(userOption);
+        }
+    }
+}
+
+function setToUserPreset(presetName) {
+    currentPreset = presetName;
+    // Update the custom dropdown display
+    updateColorPresetDisplay(presetName);
+    updatePresetColors();
+}
+
 function setToCustomPreset() {
     currentPreset = 'custom';
-    const presetSelect = document.getElementById('color-preset');
-    if (presetSelect) {
-        let customOption = presetSelect.querySelector('option[value="custom"]');
+
+    // Add "Custom" option to dropdown if it doesn't exist
+    const optionsContainer = document.getElementById('color-preset-options');
+    if (optionsContainer) {
+        let customOption = optionsContainer.querySelector('.custom-dropdown-option[data-value="custom"]');
         if (!customOption) {
-            customOption = document.createElement('option');
-            customOption.value = 'custom';
-            customOption.textContent = 'Custom';
-            presetSelect.appendChild(customOption);
+            customOption = document.createElement('div');
+            customOption.className = 'custom-dropdown-option';
+            customOption.dataset.value = 'custom';
+
+            const leftDiv = document.createElement('div');
+            leftDiv.className = 'option-left';
+
+            const labelSpan = document.createElement('span');
+            labelSpan.textContent = 'Custom';
+            leftDiv.appendChild(labelSpan);
+
+            customOption.appendChild(leftDiv);
+            optionsContainer.appendChild(customOption);
         }
-        presetSelect.value = 'custom';
     }
+
+    // Update the custom dropdown display
+    updateColorPresetDisplay('custom');
 }
 
 function initializeColors() {
@@ -511,10 +798,18 @@ function setupDropdownNavigation() {
             e.preventDefault();
             const direction = button.dataset.direction;
             const targetId = button.dataset.target;
+
+            if (targetId === 'aspect-ratio-dropdown') {
+                navigateCustomAspectRatioDropdown(direction);
+            } else if (targetId === 'blend-mode-dropdown') {
+                navigateCustomBlendModeDropdown(direction);
+            } else if (targetId === 'color-preset-dropdown') {
+                navigateCustomColorPresetDropdown(direction);
+            } else {
             const dropdown = document.getElementById(targetId);
-            
             if (dropdown) {
                 navigateDropdown(dropdown, direction);
+                }
             }
         });
     });
@@ -944,7 +1239,6 @@ async function generateGradientOptimized() {
         
     } catch (error) {
         console.error('Error generating gradient:', error);
-        showError('Failed to generate gradient: ' + error.message);
         updateResolutionStatus('Generation failed', false);
     } finally {
         isGenerating = false;
@@ -1068,18 +1362,60 @@ function applyColorOnly(data, hueShift, saturationAdjust) {
     }
 }
 
+// Improved noise function for more natural, filmic results
+function improvedNoise(x, y, seed = 0) {
+    // Use a simple but effective noise function
+    const n = Math.sin(x * 0.01) * Math.cos(y * 0.01) +
+              Math.sin(x * 0.005 + seed) * Math.cos(y * 0.005 + seed) * 0.5 +
+              Math.sin(x * 0.02 + seed * 2) * Math.cos(y * 0.02 + seed * 2) * 0.25;
+
+    return (n + 1) * 0.5; // Normalize to 0-1
+}
+
 function applyNoiseOnly(data, width, height, noiseAmount, noiseScale) {
+    // Create a more sophisticated noise pattern
+    const baseSeed = Math.random() * 1000; // Random seed for variation
+
     for (let i = 0; i < data.length; i += 4) {
-        const x = (i / 4) % width;
-        const y = Math.floor((i / 4) / width);
+        const pixelIndex = i / 4;
+        const x = pixelIndex % width;
+        const y = Math.floor(pixelIndex / width);
+
+        // Generate multi-octave noise for more natural results
+        let noiseValue = 0;
+        let amplitude = 1.0;
+        let frequency = noiseScale * 0.001;
+
+        // Multiple octaves for natural variation
+        for (let octave = 0; octave < 3; octave++) {
+            const nx = x * frequency;
+            const ny = y * frequency;
+            noiseValue += improvedNoise(nx, ny, baseSeed + octave) * amplitude;
+            amplitude *= 0.5;
+            frequency *= 2.0;
+        }
+
+        // Normalize and apply filmic characteristics
+        noiseValue = noiseValue / 1.75; // Normalize accumulated octaves
+
+        // Add some grain clumping (filmic characteristic)
+        const grain = Math.random() * 0.3 - 0.15; // Small random variation
+        noiseValue += grain;
+
+        // Apply contrast curve for more filmic look
+        noiseValue = Math.pow(Math.abs(noiseValue), 0.8) * Math.sign(noiseValue);
+
+        // Scale by amount and ensure reasonable range
+        const finalNoise = (noiseValue - 0.5) * noiseAmount * 0.4;
+
+        // Apply to RGB channels (slight color variation for filmic look)
+        const rNoise = finalNoise + (Math.random() - 0.5) * noiseAmount * 0.05;
+        const gNoise = finalNoise + (Math.random() - 0.5) * noiseAmount * 0.05;
+        const bNoise = finalNoise + (Math.random() - 0.5) * noiseAmount * 0.05;
         
-        const noise = (Math.sin(x * noiseScale * 0.1) * Math.cos(y * noiseScale * 0.1) + 
-                      Math.sin(x * noiseScale * 0.07) * Math.cos(y * noiseScale * 0.13)) * 0.5;
-        const noiseValue = noise * noiseAmount * 0.1;
-        
-        data[i] = Math.round(Math.max(0, Math.min(1, data[i] / 255 + noiseValue)) * 255);
-        data[i + 1] = Math.round(Math.max(0, Math.min(1, data[i + 1] / 255 + noiseValue)) * 255);
-        data[i + 2] = Math.round(Math.max(0, Math.min(1, data[i + 2] / 255 + noiseValue)) * 255);
+        data[i] = Math.round(Math.max(0, Math.min(255, data[i] + rNoise * 255)));
+        data[i + 1] = Math.round(Math.max(0, Math.min(255, data[i + 1] + gNoise * 255)));
+        data[i + 2] = Math.round(Math.max(0, Math.min(255, data[i + 2] + bNoise * 255)));
     }
 }
 
@@ -1333,6 +1669,9 @@ function updateResolutionStatus(message, isLoading = false) {
 function collectParameters() {
     const colorParams = getRgbColors();
     const activeColors = getActiveColors();
+
+    // Check if post-processing toggle is enabled
+    const postProcessingEnabled = document.getElementById('post-processing-toggle')?.classList.contains('active');
     
     return {
         seed: parseInt(domCache.get('seed')?.value || '42'),
@@ -1347,13 +1686,13 @@ function collectParameters() {
         zoom: canvasZoom,
         canvas_rotation: canvasRotation,
         color_count: activeColors.length,
-        levels_shadows: parseFloat(domCache.get('levels-shadows')?.value || '0'),
-        levels_midtones: parseFloat(domCache.get('levels-midtones')?.value || '0'),
-        levels_highlights: parseFloat(domCache.get('levels-highlights')?.value || '0'),
-        hue_shift: parseFloat(domCache.get('hue-shift')?.value || '0'),
-        saturation: parseFloat(domCache.get('saturation')?.value || '0'),
-        noise_amount: parseFloat(domCache.get('noise-amount')?.value || '0'),
-        noise_scale: parseFloat(domCache.get('noise-scale')?.value || '1.0'),
+        levels_shadows: postProcessingEnabled ? parseFloat(domCache.get('levels-shadows')?.value || '0') : 0,
+        levels_midtones: postProcessingEnabled ? parseFloat(domCache.get('levels-midtones')?.value || '0') : 0,
+        levels_highlights: postProcessingEnabled ? parseFloat(domCache.get('levels-highlights')?.value || '0') : 0,
+        hue_shift: postProcessingEnabled ? parseFloat(domCache.get('hue-shift')?.value || '0') : 0,
+        saturation: postProcessingEnabled ? parseFloat(domCache.get('saturation')?.value || '0') : 0,
+        noise_amount: postProcessingEnabled ? parseFloat(domCache.get('noise-amount')?.value || '0') : 0,
+        noise_scale: postProcessingEnabled ? parseFloat(domCache.get('noise-scale')?.value || '1.0') : 1.0,
         ...colorParams
     };
 }
@@ -1435,7 +1774,6 @@ async function exportImage() {
         
     } catch (error) {
         console.error('Export failed:', error);
-        showError('Failed to export image: ' + error.message);
     }
 }
 
@@ -1452,9 +1790,20 @@ const COLOR_PRESETS = {
 };
 
 function applyColorPreset(colorPresetName) {
-    const colors = COLOR_PRESETS[colorPresetName];
+    let colors = null;
+
+    // Check if it's a built-in preset
+    if (COLOR_PRESETS[colorPresetName]) {
+        colors = COLOR_PRESETS[colorPresetName];
+    }
+    // Check if it's a user preset
+    else if (userPresets[colorPresetName]) {
+        colors = userPresets[colorPresetName];
+    }
+
     if (colors) {
         updateColorPickers(colors);
+        updateAddButtonState();
         generateGradientImmediate();
     }
 }
@@ -1473,6 +1822,7 @@ function randomizeColors(seed) {
     
     updateColorPickers(colors);
     setToCustomPreset();
+    updateAddButtonState();
     generateGradientImmediate();
 }
 
@@ -1816,7 +2166,7 @@ function randomizeBlending() {
     if (!gradientGenerator) return;
     
     try {
-        updateResolutionStatus('Randomizing blending...', true);
+        updateResolutionStatus('Randomizing parameters...', true);
         
         const randomSeed = Math.floor(Math.random() * 1000000);
         const random = new SeededRandom(randomSeed);
@@ -1841,10 +2191,6 @@ function randomizeBlending() {
         document.getElementById('color-spread').value = colorSpread;
         document.getElementById('color-spread-value').textContent = colorSpread.toFixed(1);
         
-        const blendModes = ['smooth', 'radial', 'angular', 'diamond', 'vortex'];
-        const modeIndex = Math.floor(random.next() * blendModes.length);
-        document.getElementById('blend-mode').value = blendModes[modeIndex];
-        
         generateGradientImmediate();
         
     } catch (error) {
@@ -1854,8 +2200,17 @@ function randomizeBlending() {
 }
 
 
-function handleAspectRatioChange() {
-    const aspectRatio = document.getElementById('aspect-ratio').value;
+function handleAspectRatioChange(event) {
+    let aspectRatio;
+    if (event && event.target && event.target.value) {
+        // From custom dropdown
+        aspectRatio = event.target.value;
+    } else {
+        // Fallback: get from custom dropdown visual
+        const visual = document.querySelector('#aspect-ratio-selected .aspect-ratio-visual');
+        aspectRatio = visual ? visual.dataset.ratio : '1:1';
+    }
+
     const dimensionControls = document.getElementById('dimension-controls');
     
     if (aspectRatio === 'custom') {
@@ -1903,6 +2258,9 @@ function handleAspectRatioChange() {
         
         document.getElementById('width').value = width;
         document.getElementById('height').value = height;
+
+        // Update resolution display
+        updateResolutionDisplay(width, height);
         
         applyDimensionsInternal(width, height);
     }
@@ -1919,6 +2277,7 @@ function applyDimensionsInternal(width, height) {
     currentHeight = height;
     
     updatePreviewResolution();
+    updateResolutionDisplay(width, height);
     
     canvas.width = width;
     canvas.height = height;
@@ -1931,29 +2290,623 @@ function applyDimensionsInternal(width, height) {
     generateGradientForced();
 }
 
-function showError(message) {
-    const errorDiv = document.createElement('div');
-    errorDiv.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #ff4444;
-        color: white;
-        padding: 15px;
-        border-radius: 5px;
-        z-index: 10000;
-        max-width: 300px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    `;
-    errorDiv.textContent = message;
-    document.body.appendChild(errorDiv);
-    
-    setTimeout(() => {
-        if (errorDiv.parentNode) {
-            errorDiv.parentNode.removeChild(errorDiv);
-        }
-    }, 5000);
+function extractColorsFromImage(imageFile, maxColors = 6) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        img.onload = () => {
+            // Resize image for processing (max 200px on longest side)
+            const maxSize = 200;
+            let { width, height } = img;
+
+            if (width > height) {
+                if (width > maxSize) {
+                    height = (height * maxSize) / width;
+                    width = maxSize;
+                }
+            } else {
+                if (height > maxSize) {
+                    width = (width * maxSize) / height;
+                    height = maxSize;
+                }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+
+            // Draw and get image data
+            ctx.drawImage(img, 0, 0, width, height);
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+
+            // Collect all color data with HSL analysis
+            const colorData = [];
+
+            // Sample pixels (every 5th pixel for better accuracy)
+            for (let i = 0; i < data.length; i += 20) { // 4 bytes per pixel * 5 = 20
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                const alpha = data[i + 3];
+
+                // Skip transparent pixels
+                if (alpha < 128) continue;
+
+                const hex = rgbToHex(r, g, b);
+                const hsl = rgbToHsl(r, g, b);
+
+                colorData.push({
+                    hex,
+                    rgb: { r, g, b },
+                    hsl,
+                    frequency: 1
+                });
+            }
+
+            // Group similar colors and calculate frequencies
+            const colorMap = new Map();
+            colorData.forEach(color => {
+                // Find similar existing color (within 10 units in each RGB component)
+                let found = false;
+                for (const [existingHex, existingData] of colorMap) {
+                    const existingRgb = hexToRgb(existingHex);
+                    if (existingRgb &&
+                        Math.abs(existingRgb.r - color.rgb.r) <= 15 &&
+                        Math.abs(existingRgb.g - color.rgb.g) <= 15 &&
+                        Math.abs(existingRgb.b - color.rgb.b) <= 15) {
+                        existingData.frequency++;
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    colorMap.set(color.hex, {
+                        frequency: color.frequency,
+                        hsl: color.hsl,
+                        hex: color.hex
+                    });
+                }
+            });
+
+            // Convert to array and analyze for accent potential
+            const colorArray = Array.from(colorMap.values());
+
+            // Score each color for accent potential
+            colorArray.forEach(color => {
+                const { hsl, frequency } = color;
+
+                // Accent score based on multiple factors:
+                // 1. Saturation (higher = more vibrant)
+                // 2. Brightness (avoid too dark/light)
+                // 3. Frequency (common colors get bonus)
+                // 4. Hue diversity (prefer colors that aren't too similar)
+
+                const saturationScore = hsl.s; // 0-1
+                const brightnessScore = 1 - Math.abs(hsl.l - 0.5) * 2; // Peak at 50% brightness
+                const frequencyScore = Math.min(frequency / 50, 1); // Cap at reasonable frequency
+                const uniquenessScore = 1; // Could be improved with hue clustering
+
+                color.accentScore = (
+                    saturationScore * 0.4 +      // 40% - saturation
+                    brightnessScore * 0.3 +      // 30% - optimal brightness
+                    frequencyScore * 0.2 +       // 20% - how common
+                    uniquenessScore * 0.1        // 10% - uniqueness
+                );
+            });
+
+            // Sort by dominant (frequency) and accent potential
+            const dominantColors = colorArray
+                .sort((a, b) => b.frequency - a.frequency)
+                .slice(0, Math.ceil(maxColors / 2));
+
+            const accentColors = colorArray
+                .filter(color => !dominantColors.some(dc => dc.hex === color.hex))
+                .sort((a, b) => b.accentScore - a.accentScore)
+                .slice(0, Math.floor(maxColors / 2));
+
+            // Combine dominant and accent colors, prioritizing dominant
+            const finalColors = [...dominantColors, ...accentColors]
+                .slice(0, maxColors)
+                .map(color => color.hex);
+
+            // Ensure we have at least some colors as fallback
+            if (finalColors.length === 0) {
+                finalColors.push('#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24');
+            }
+
+            // Fill up to maxColors if needed with variations
+            while (finalColors.length < Math.min(maxColors, 4)) {
+                const baseColor = finalColors[finalColors.length - 1];
+                const rgb = hexToRgb(baseColor);
+                if (rgb) {
+                    // Create a complementary variation
+                    const factor = 0.85;
+                    const newColor = rgbToHex(
+                        Math.round(rgb.r * factor),
+                        Math.round(rgb.g * factor),
+                        Math.round(rgb.b * factor)
+                    );
+                    finalColors.push(newColor);
+                }
+            }
+
+            resolve(finalColors.slice(0, maxColors));
+        };
+
+        img.onerror = () => {
+            reject(new Error('Failed to load image'));
+        };
+
+        // Create object URL for the file
+        const objectUrl = URL.createObjectURL(imageFile);
+        img.src = objectUrl;
+
+        // Clean up object URL after loading
+        img.onload = (originalOnload => {
+            return function() {
+                URL.revokeObjectURL(objectUrl);
+                originalOnload.call(this);
+            };
+        })(img.onload);
+    });
 }
+
+function rgbToHsl(r, g, b) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h, s, l = (max + min) / 2;
+
+    if (max === min) {
+        h = s = 0; // achromatic
+    } else {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+
+        switch (max) {
+            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+            case g: h = (b - r) / d + 2; break;
+            case b: h = (r - g) / d + 4; break;
+        }
+        h /= 6;
+    }
+
+    return { h, s, l };
+}
+
+function rgbToHex(r, g, b) {
+    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+function setupCustomAspectRatioDropdown() {
+    const dropdown = document.getElementById('aspect-ratio-dropdown');
+    const selected = document.getElementById('aspect-ratio-selected');
+    const options = document.getElementById('aspect-ratio-options');
+
+    if (!dropdown || !selected || !options) return;
+
+    // Generate dropdown options dynamically
+    const aspectRatios = [
+        { value: 'custom', name: 'Custom' },
+        { value: '1:1', name: 'Square' },
+        { value: '16:9', name: 'Widescreen' },
+        { value: '4:3', name: 'Standard' },
+        { value: '3:2', name: 'Photo' },
+        { value: '21:9', name: 'Ultrawide' },
+        { value: '9:16', name: 'Portrait' },
+        { value: '3:4', name: 'Portrait Standard' },
+        { value: '2:3', name: 'Portrait Photo' }
+    ];
+
+    aspectRatios.forEach(ratio => {
+        const option = document.createElement('div');
+        option.className = 'custom-dropdown-option';
+        option.dataset.value = ratio.value;
+
+        const leftDiv = document.createElement('div');
+        leftDiv.className = 'option-left';
+
+        const visual = document.createElement('div');
+        visual.className = 'aspect-ratio-visual';
+        visual.dataset.ratio = ratio.value;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'aspect-name';
+        nameSpan.textContent = ratio.name;
+
+        leftDiv.appendChild(visual);
+        leftDiv.appendChild(nameSpan);
+
+        option.appendChild(leftDiv);
+
+        // Only add suffix for non-custom ratios
+        if (ratio.value !== 'custom') {
+            const suffixSpan = document.createElement('span');
+            suffixSpan.className = 'aspect-ratio-suffix';
+            suffixSpan.textContent = ratio.value;
+            option.appendChild(suffixSpan);
+        }
+
+        options.appendChild(option);
+    });
+
+    // Make sure the selected element is clickable
+    selected.style.cursor = 'pointer';
+    selected.style.pointerEvents = 'auto';
+
+    // Toggle dropdown on click
+    selected.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const isCurrentlyOpen = dropdown.classList.contains('open');
+
+        if (isCurrentlyOpen) {
+            // If this dropdown is already open, just close it
+            dropdown.classList.remove('open');
+        } else {
+            // If this dropdown is closed, close all others and open this one
+            closeAllDropdowns();
+            dropdown.classList.add('open');
+        }
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!dropdown.contains(e.target)) {
+            dropdown.classList.remove('open');
+        }
+    });
+
+    // Handle option selection
+    options.addEventListener('click', (e) => {
+        const option = e.target.closest('.custom-dropdown-option');
+        if (option) {
+            const value = option.dataset.value;
+            selectCustomAspectRatioOption(value);
+            dropdown.classList.remove('open');
+        }
+    });
+
+    // Initialize with default selection
+    selectCustomAspectRatioOption('1:1');
+}
+
+function selectCustomAspectRatioOption(value) {
+    const selected = document.getElementById('aspect-ratio-selected');
+    const options = document.querySelectorAll('#aspect-ratio-options .custom-dropdown-option');
+
+    if (!selected) return;
+
+    // Update selected display
+    const selectedVisual = selected.querySelector('.aspect-ratio-visual');
+    const selectedName = selected.querySelector('.aspect-name');
+    const selectedSuffix = selected.querySelector('.aspect-ratio-suffix');
+
+    if (selectedVisual) selectedVisual.dataset.ratio = value;
+
+    const optionData = {
+        '1:1': { name: 'Square', suffix: '1:1' },
+        '16:9': { name: 'Widescreen', suffix: '16:9' },
+        '4:3': { name: 'Standard', suffix: '4:3' },
+        '3:2': { name: 'Photo', suffix: '3:2' },
+        '21:9': { name: 'Ultrawide', suffix: '21:9' },
+        '9:16': { name: 'Portrait', suffix: '9:16' },
+        '3:4': { name: 'Portrait Standard', suffix: '3:4' },
+        '2:3': { name: 'Portrait Photo', suffix: '2:3' },
+        'custom': { name: 'Custom', suffix: null }
+    };
+
+    const data = optionData[value];
+    if (data) {
+        if (selectedName) selectedName.textContent = data.name;
+        if (selectedSuffix) {
+            if (data.suffix) {
+                selectedSuffix.textContent = data.suffix;
+                selectedSuffix.style.display = 'inline';
+            } else {
+                selectedSuffix.style.display = 'none';
+            }
+        }
+    }
+
+    // Update selected state
+    options.forEach(option => {
+        option.classList.toggle('selected', option.dataset.value === value);
+    });
+
+    // Trigger aspect ratio change
+    handleAspectRatioChange({ target: { value } });
+}
+
+function navigateCustomAspectRatioDropdown(direction) {
+    const options = ['1:1', '16:9', '4:3', '3:2', '21:9', '9:16', '3:4', '2:3', 'custom'];
+    const currentValue = document.querySelector('#aspect-ratio-selected .aspect-ratio-visual').dataset.ratio;
+    const currentIndex = options.indexOf(currentValue);
+
+    if (currentIndex === -1) return;
+
+    let newIndex;
+    if (direction === 'next') {
+        newIndex = (currentIndex + 1) % options.length;
+    } else {
+        newIndex = (currentIndex - 1 + options.length) % options.length;
+    }
+
+    selectCustomAspectRatioOption(options[newIndex]);
+}
+
+function navigateCustomBlendModeDropdown(direction) {
+    const options = ['smooth', 'radial', 'diamond', 'vortex'];
+    const currentValue = document.querySelector('#blend-mode-options .custom-dropdown-option.selected')?.dataset.value || 'smooth';
+    const currentIndex = options.indexOf(currentValue);
+
+    if (currentIndex === -1) return;
+
+    let newIndex;
+    if (direction === 'next') {
+        newIndex = (currentIndex + 1) % options.length;
+    } else {
+        newIndex = (currentIndex - 1 + options.length) % options.length;
+    }
+
+    selectCustomBlendModeOption(options[newIndex]);
+}
+
+function setupCustomBlendModeDropdown() {
+    const dropdown = document.getElementById('blend-mode-dropdown');
+    const selected = document.getElementById('blend-mode-selected');
+    const options = document.getElementById('blend-mode-options');
+
+    if (!dropdown || !selected || !options) {
+        console.warn('Blend mode dropdown elements not found');
+        return;
+    }
+
+    // Make sure the selected element is clickable
+    selected.style.cursor = 'pointer';
+    selected.style.pointerEvents = 'auto';
+
+    // Toggle dropdown on click
+    selected.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const isCurrentlyOpen = dropdown.classList.contains('open');
+
+        if (isCurrentlyOpen) {
+            // If this dropdown is already open, just close it
+            dropdown.classList.remove('open');
+        } else {
+            // If this dropdown is closed, close all others and open this one
+            closeAllDropdowns();
+            dropdown.classList.add('open');
+        }
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!dropdown.contains(e.target)) {
+            dropdown.classList.remove('open');
+        }
+    });
+
+    // Handle option selection
+    options.addEventListener('click', (e) => {
+        const option = e.target.closest('.custom-dropdown-option');
+        if (option) {
+            const value = option.dataset.value;
+            selectCustomBlendModeOption(value);
+            dropdown.classList.remove('open');
+        }
+    });
+
+    // Initialize with default selection
+    selectCustomBlendModeOption('smooth');
+}
+
+function selectCustomBlendModeOption(value) {
+    const selected = document.getElementById('blend-mode-selected');
+    const options = document.querySelectorAll('#blend-mode-options .custom-dropdown-option');
+
+    if (!selected) return;
+
+    // Update selected display
+    const selectedName = selected.querySelector('.blend-mode-name');
+    if (selectedName) {
+        const blendModeNames = {
+            'smooth': 'Smooth Linear',
+            'radial': 'Radial Burst',
+            'diamond': 'Diamond Shape',
+            'vortex': 'Swirling Vortex'
+        };
+        selectedName.textContent = blendModeNames[value] || value;
+    }
+
+    // Update active option styling
+    options.forEach(option => {
+        if (option.dataset.value === value) {
+            option.classList.add('selected');
+        } else {
+            option.classList.remove('selected');
+        }
+    });
+
+    // Apply the blend mode directly
+    if (value) {
+        // Update the hidden select for compatibility
+        const hiddenSelect = document.getElementById('blend-mode');
+        if (hiddenSelect) {
+            hiddenSelect.value = value;
+        }
+
+        // Directly trigger gradient regeneration
+        debouncedGenerateGradient();
+    }
+}
+
+function navigateCustomColorPresetDropdown(direction) {
+    // Get all available preset options (built-in + user presets)
+    const allOptions = ['sunset', 'ocean', 'forest', 'cosmic', 'fire', 'ice', 'earth', 'neon'];
+
+    // Add "custom" if it exists in the dropdown
+    const optionsContainer = document.getElementById('color-preset-options');
+    if (optionsContainer && optionsContainer.querySelector('.custom-dropdown-option[data-value="custom"]')) {
+        allOptions.push('custom');
+    }
+
+    // Add any user presets that exist
+    const userPresetKeys = Object.keys(userPresets);
+    allOptions.push(...userPresetKeys);
+
+    const currentValue = document.querySelector('#color-preset-options .custom-dropdown-option.selected')?.dataset.value || '';
+    const currentIndex = allOptions.indexOf(currentValue);
+
+    let newIndex;
+    if (currentIndex === -1) {
+        // No preset currently selected, start from first option
+        newIndex = direction === 'next' ? 0 : allOptions.length - 1;
+    } else {
+        // Navigate from current selection
+        if (direction === 'next') {
+            newIndex = (currentIndex + 1) % allOptions.length;
+        } else {
+            newIndex = (currentIndex - 1 + allOptions.length) % allOptions.length;
+        }
+    }
+
+    selectCustomColorPresetOption(allOptions[newIndex]);
+}
+
+function setupCustomColorPresetDropdown() {
+    const dropdown = document.getElementById('color-preset-dropdown');
+    const selected = document.getElementById('color-preset-selected');
+    const options = document.getElementById('color-preset-options');
+
+    if (!dropdown || !selected || !options) {
+        console.warn('Color preset dropdown elements not found');
+        return;
+    }
+
+    // Make sure the selected element is clickable
+    selected.style.cursor = 'pointer';
+    selected.style.pointerEvents = 'auto';
+
+    // Toggle dropdown on click
+    selected.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const isCurrentlyOpen = dropdown.classList.contains('open');
+
+        if (isCurrentlyOpen) {
+            // If this dropdown is already open, just close it
+            dropdown.classList.remove('open');
+        } else {
+            // If this dropdown is closed, close all others and open this one
+            closeAllDropdowns();
+            dropdown.classList.add('open');
+        }
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!dropdown.contains(e.target)) {
+            dropdown.classList.remove('open');
+        }
+    });
+
+    // Handle option selection
+    options.addEventListener('click', (e) => {
+        const option = e.target.closest('.custom-dropdown-option');
+        if (option) {
+            const value = option.dataset.value;
+            selectCustomColorPresetOption(value);
+            dropdown.classList.remove('open');
+        }
+    });
+
+    // Initialize with random preset selection (colors match the selected preset)
+    const presetOptions = ['sunset', 'ocean', 'forest', 'cosmic', 'fire', 'ice', 'earth', 'neon'];
+    const randomPreset = presetOptions[Math.floor(Math.random() * presetOptions.length)];
+    selectCustomColorPresetOption(randomPreset);
+}
+
+function selectCustomColorPresetOption(value) {
+    const selected = document.getElementById('color-preset-selected');
+    const options = document.querySelectorAll('#color-preset-options .custom-dropdown-option');
+
+    if (!selected) return;
+
+    // Update selected display
+    updateColorPresetDisplay(value);
+
+    // Update active option styling
+    options.forEach(option => {
+        if (option.dataset.value === value) {
+            option.classList.add('selected');
+        } else {
+            option.classList.remove('selected');
+        }
+    });
+
+    // Apply the selected preset directly
+    if (value) {
+        applyColorPreset(value);
+        currentPreset = value;
+        updatePresetColors();
+    } else {
+        // Reset to no preset
+        currentPreset = '';
+        updatePresetColors();
+    }
+}
+
+function updateColorPresetDisplay(value) {
+    const selected = document.getElementById('color-preset-selected');
+    const selectedName = selected?.querySelector('.color-preset-name');
+
+    if (!selectedName) return;
+
+    if (!value) {
+        selectedName.textContent = 'Custom';
+    } else {
+        const presetNames = {
+            'sunset': 'Sunset',
+            'ocean': 'Ocean',
+            'forest': 'Forest',
+            'cosmic': 'Cosmic',
+            'fire': 'Fire',
+            'ice': 'Ice',
+            'earth': 'Earth',
+            'neon': 'Neon',
+            'custom': 'Custom'
+        };
+        selectedName.textContent = presetNames[value] || value;
+    }
+}
+
+function closeAllDropdowns() {
+    // Close all custom dropdowns
+    const allDropdowns = document.querySelectorAll('.custom-dropdown');
+    allDropdowns.forEach(dropdown => {
+        dropdown.classList.remove('open');
+    });
+}
+
+function updateResolutionDisplay(width, height) {
+    const resolutionDisplay = document.getElementById('resolution-display');
+    if (resolutionDisplay) {
+        resolutionDisplay.textContent = `${width}×${height}`;
+    }
+}
+
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

@@ -77,16 +77,14 @@ impl GradientParams {
 pub enum BlendMode {
     Smooth = 0,
     Radial = 1,
-    Angular = 2,
-    Diamond = 3,
-    Vortex = 4,
+    Diamond = 2,
+    Vortex = 3,
 }
 
 impl BlendMode {
     fn from_string(s: &str) -> Self {
         match s {
             "radial" => BlendMode::Radial,
-            "angular" => BlendMode::Angular,
             "diamond" => BlendMode::Diamond,
             "vortex" => BlendMode::Vortex,
             _ => BlendMode::Smooth,
@@ -429,11 +427,6 @@ impl GradientGenerator {
                 let dx = final_x - center_x;
                 let dy = final_y - center_y;
                 (dx * dx + dy * dy).sqrt()
-            },
-            BlendMode::Angular => {
-                let offset_angle = self.params.center_bias * self.cached_constants.two_pi;
-                let angle = final_y.atan2(final_x) + offset_angle;
-                ((angle + PI) / self.cached_constants.two_pi) % 1.0
             },
             BlendMode::Diamond => {
                 let center_x = (self.params.center_bias - 0.5) * 1.2;
